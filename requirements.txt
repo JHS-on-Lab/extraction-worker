@@ -1,0 +1,24 @@
+# DB
+SQLAlchemy==2.0.41
+PyMySQL==1.1.1
+
+# SSH Tunnel
+sshtunnel==0.4.0
+paramiko==3.5.1
+
+# Config
+python-dotenv==1.1.0
+
+# HTTP / Headless
+httpx==0.28.1
+playwright==1.52.0
+
+# Extraction
+trafilatura==2.0.0
+readability-lxml==0.8.4.1
+lxml==5.4.0
+selectolax==0.3.28
+
+# Dev / Test
+pytest==8.4.0
+pytest-asyncio==1.0.0

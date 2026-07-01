@@ -1,0 +1,39 @@
+# Environment
+.env*
+
+# Virtual environments
+.venv/
+venv/
+env/
+ENV/
+
+# Output
+output/
+
+# Claude Code
+.claude/
+
+# Python
+__pycache__/
+*.py[cod]
+*.pyo
+*.pyd
+*.egg
+*.egg-info/
+dist/
+build/
+*.so
+
+# Logs
+logs/
+*.log
+
+# IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+
+# OS
+.DS_Store
+Thumbs.db
