@@ -54,25 +54,7 @@ WORKER_ID              = _env("WORKER_ID", "worker-1")
 
 # Fetcher
 DEFAULT_CRAWL_DELAY_MS  = _env_int("DEFAULT_CRAWL_DELAY_MS", 1000)
-DEFAULT_RENDER_MODE     = _env("DEFAULT_RENDER_MODE", "static")
-PROXY_PROVIDER          = _env("PROXY_PROVIDER", "direct")
 HTTP_VERIFY_SSL         = _env_bool("HTTP_VERIFY_SSL", True)   # 사내 자체서명 인증서 환경에서는 false
-
-# Google 발견 모드
-# search: google.com/search?tbm=nws 스크랩 (기본)
-# rss:    Google News RSS + Chrome CBMi URL 변환 (봇 차단 시 대안)
-GOOGLE_DISCOVERY_MODE   = _env("GOOGLE_DISCOVERY_MODE", "search")
-
-# Daum 뉴스 수집 범위 (기본: 전체 언론사)
-# false 로 설정하면 뉴스제휴 언론사만 수집 (SHOW_DNS=1)
-DAUM_NEWS_ALL         = _env_bool("DAUM_NEWS_ALL", True)
-
-# 소스별 발견 최대 페이지 수 (키워드 1회 실행당)
-NAVER_MAX_PAGES       = _env_int("NAVER_MAX_PAGES",       10)
-DAUM_MAX_PAGES        = _env_int("DAUM_MAX_PAGES",        10)
-GOOGLE_MAX_PAGES      = _env_int("GOOGLE_MAX_PAGES",       5)
-BAIDU_MAX_PAGES       = _env_int("BAIDU_MAX_PAGES",        5)
-NAVER_STOCK_MAX_PAGES = _env_int("NAVER_STOCK_MAX_PAGES",  5)
 
 # Sink
 SINK_TYPE       = _env("SINK_TYPE", "file")   # file | solr
@@ -99,8 +81,6 @@ MAX_ATTEMPTS              = _env_int("MAX_ATTEMPTS", 5)
 BACKOFF_BASE_SECONDS      = _env_int("BACKOFF_BASE_SECONDS", 30)
 BACKOFF_MAX_SECONDS       = _env_int("BACKOFF_MAX_SECONDS", 3600)
 CLAIM_TIMEOUT_SECONDS     = _env_int("CLAIM_TIMEOUT_SECONDS", 300)
-DISCOVERY_403_RESCHEDULE_SEC = _env_int("DISCOVERY_403_RESCHEDULE_SEC", 1800)
-BOT_DETECT_RETRY_SEC         = _env_int("BOT_DETECT_RETRY_SEC",         1800)
 
 # Rules cache
 RULES_CACHE_TTL_SECONDS = _env_int("RULES_CACHE_TTL_SECONDS", 60)
