@@ -7,7 +7,7 @@
 # 인자:
 #   worker_id  컨테이너 고유 식별자 (예: extr-1, extr-2)
 #   source     처리할 소스 필터 (기본: all)
-#              NAVER_NEWS | DAUM_NEWS | GOOGLE_NEWS | NAVER_STOCK | all
+#              NAVER_NEWS | DAUM_NEWS | GOOGLE_NEWS | NAVER_STOCK | DUCKDUCKGO_NEWS | all
 #
 # 예시:
 #   ./deploy/run.sh extr-1

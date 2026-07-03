@@ -15,11 +15,12 @@ from enum import Enum
 # ---------------------------------------------------------------------------
 
 class SourceType(str, Enum):
-    NAVER_NEWS  = "NAVER_NEWS"
-    DAUM_NEWS   = "DAUM_NEWS"
-    GOOGLE_NEWS = "GOOGLE_NEWS"
-    BAIDU_NEWS  = "BAIDU_NEWS"
-    NAVER_STOCK = "NAVER_STOCK"
+    NAVER_NEWS      = "NAVER_NEWS"
+    DAUM_NEWS       = "DAUM_NEWS"
+    GOOGLE_NEWS     = "GOOGLE_NEWS"
+    BAIDU_NEWS      = "BAIDU_NEWS"
+    NAVER_STOCK     = "NAVER_STOCK"
+    DUCKDUCKGO_NEWS = "DUCKDUCKGO_NEWS"
 
 
 class CrawlUrlStatus(str, Enum):
