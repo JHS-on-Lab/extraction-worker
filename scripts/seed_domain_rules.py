@@ -534,6 +534,12 @@ _RULES: list[dict] = [
      "rules_enabled": False, "rules_json": None, "updated_by": "domain-analysis"},
     {"host": "biz.newdaily.co.kr",    "render_mode": "static", "crawl_delay_ms": 1000,
      "rules_enabled": False, "rules_json": None, "updated_by": "domain-analysis"},
+
+    # www.insight.co.kr: FETCH_CONNECTION(SSL EOF) 반복 발생 — CSS 규칙 문제가
+    # 아니라 요청 속도로 인한 WAF/anti-bot 차단으로 추정. crawl_delay_ms 를
+    # 전역 기본값(1000ms)보다 넉넉하게 잡아 재발 여부 관찰.
+    {"host": "www.insight.co.kr",     "render_mode": "static", "crawl_delay_ms": 2000,
+     "rules_enabled": False, "rules_json": None, "updated_by": "domain-analysis"},
 ]
 
 # ---------------------------------------------------------------------------
