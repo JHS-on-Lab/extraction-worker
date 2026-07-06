@@ -161,6 +161,12 @@ def _process_one(
         except Exception:
             raw_rules = None
     wait_for_selector = (raw_rules or {}).get("headless_wait_for")
+
+    # force_http: HTTPS 접속이 안 되고 HTTP 만 정상 응답하는 도메인용.
+    # t_crawl_url 에는 원래 스킴(대개 https)으로 저장돼 있으므로 fetch 직전에만 downgrade.
+    if (raw_rules or {}).get("force_http") and url.startswith("https://"):
+        url = "http://" + url[len("https://"):]
+
     try:
         fr = fetch_by_render_mode(url, render_mode, fetcher, headless_fetcher,
                                   wait_for_selector=wait_for_selector)

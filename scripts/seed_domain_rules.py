@@ -540,6 +540,13 @@ _RULES: list[dict] = [
     # 전역 기본값(1000ms)보다 넉넉하게 잡아 재발 여부 관찰.
     {"host": "www.insight.co.kr",     "render_mode": "static", "crawl_delay_ms": 2000,
      "rules_enabled": False, "rules_json": None, "updated_by": "domain-analysis"},
+
+    # www.celuvmedia.com: 443 포트 자체가 응답 없음(TLS 핸드셰이크 문제가 아니라
+    # HTTPS 서비스 자체 미제공, 전 IP 커넥션 타임아웃 확인). HTTP는 정상 응답.
+    # force_http 로 fetch 직전에 스킴을 http 로 강제 다운그레이드.
+    {"host": "www.celuvmedia.com",    "render_mode": "static", "crawl_delay_ms": 1000,
+     "rules_enabled": True, "updated_by": "domain-analysis",
+     "rules_json": {"force_http": True}},
 ]
 
 # ---------------------------------------------------------------------------
