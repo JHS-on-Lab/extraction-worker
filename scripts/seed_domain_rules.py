@@ -86,20 +86,24 @@ _RULES: list[dict] = [
         "render_mode": "headless",
         "crawl_delay_ms": 2000,
         "rules_enabled": True,
-        "updated_by": "domain-analysis",
-        # Next.js App Router + MUI. domcontentloaded 시점에는 React 하이드레이션 미완료.
-        # headless_wait_for 로 div#ijam_content 가 DOM에 나타날 때까지 대기 후 캡처.
-        # author: a.author-item 은 MUI 동적 클래스 없이 안정적.
+        "updated_by": "domain-analysis-2",
+        # 2026-07 사이트 리뉴얼로 div#ijam_content 컨테이너 자체가 사라짐(신규 확인).
+        # 새 본문 컨테이너: [data-testid="article-body"]. 단, 이 컨테이너는
+        # domcontentloaded 시점엔 아직 없고 클라이언트 하이드레이션 후에야 생기며,
+        # 하이드레이션 직후에도 비디오 플레이어 관련 노드가 먼저 채워짐.
+        # headless_wait_for 를 실제 본문 문단(span.MuiTypography-body-md)이
+        # 나타나는 시점으로 바꿔 레이스 컨디션(빈 컨테이너만 캡처되는 문제) 방지.
+        # author: a.author-item 은 그대로 유효.
         # published_at: span 텍스트가 "입력 YYYY.MM.DD HH:MM" 형태 →
-        #   XPath substring-after 로 날짜 부분만 추출.
+        #   XPath substring-after 로 날짜 부분만 추출 (그대로 유효).
         "rules_json": {
-            "headless_wait_for": "div#ijam_content",
+            "headless_wait_for": "span.MuiTypography-body-md",
             "title":        {"xpath": "//meta[@property='og:title']/@content"},
-            "body":         {"css": "div#ijam_content"},
+            "body":         {"css": "[data-testid='article-body'] span.MuiTypography-body-md"},
             "author":       {"css": "a.author-item"},
             "published_at": {"xpath": "substring-after((//span[starts-with(., '입력 ') and not(contains(., '수정'))])[1], '입력 ')",
                              "date_format": "%Y.%m.%d %H:%M"},
-            "min_body_len": 100,
+            "min_body_len": 200,
         },
     },
     {
