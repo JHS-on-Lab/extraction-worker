@@ -564,6 +564,23 @@ _RULES: list[dict] = [
          "author": {"xpath": "//meta[@property='article:author']/@content"},
          "min_body_len": 200,
      }},
+
+    # www.sisacast.kr: 인증서 만료/hostname mismatch로 HTTPS 접속 불가
+    # (curl 확인: "certificate has expired" / 클라이언트에 따라 hostname mismatch로도 나타남).
+    # HTTP는 정상 응답 — www.celuvmedia.com과 동일하게 force_http로 처리.
+    # 본문은 정적 HTML에 있지만(트래필라투라/readability 둘 다 실패) 구조가
+    # www.ikld.kr과 동일한 CMS(info-text 안 "기자"/"승인 날짜" 패턴) — 같은 룰 재사용.
+    {"host": "www.sisacast.kr",       "render_mode": "static", "crawl_delay_ms": 1000,
+     "rules_enabled": True, "updated_by": "domain-analysis",
+     "rules_json": {
+         "force_http": True,
+         "title":        {"xpath": "//meta[@property='og:title']/@content"},
+         "body":         {"css": "div#article-view-content-div"},
+         "author":       {"xpath": "normalize-space((//div[contains(@class,'info-text')]//text()[contains(.,'기자')])[1])"},
+         "published_at": {"xpath": "normalize-space(substring-after((//div[contains(@class,'info-text')]//text()[contains(.,'승인')])[1],'승인 '))",
+                          "date_format": "%Y.%m.%d %H:%M"},
+         "min_body_len": 100,
+     }},
 ]
 
 # ---------------------------------------------------------------------------
