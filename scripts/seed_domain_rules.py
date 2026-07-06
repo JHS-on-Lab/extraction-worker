@@ -547,6 +547,23 @@ _RULES: list[dict] = [
     {"host": "www.celuvmedia.com",    "render_mode": "static", "crawl_delay_ms": 1000,
      "rules_enabled": True, "updated_by": "domain-analysis",
      "rules_json": {"force_http": True}},
+
+    # www.msn.com: 본문이 <cp-article> 커스텀 엘리먼트의 open shadow root 안에
+    # 있어 page.content() 로는 아예 안 보임(trafilatura/readability 둘 다 빈 결과).
+    # headless_with_shadow 로 shadow root 내용을 외부 HTML에 주입 후 CSS로 접근.
+    # 한 페이지에 광고 등 shadow root 위젯이 다수(확인 시 14개) 섞여있어
+    # div[data-shadow-host='cp-article'] 로 태그명 기준 선택(순회 순서 의존 X).
+    # published_at 은 article:published_time 메타가 epoch ms 형태라 현재 룰 엔진의
+    # date_format(strptime 전용)으로 못 받아 보류 — 필요 시 rule_engine 에 epoch 지원 추가.
+    {"host": "www.msn.com",           "render_mode": "headless_with_shadow", "crawl_delay_ms": 1500,
+     "rules_enabled": True, "updated_by": "domain-analysis",
+     "rules_json": {
+         "headless_wait_for": "cp-article",
+         "title":  {"xpath": "//meta[@property='og:title']/@content"},
+         "body":   {"css": "div[data-shadow-host='cp-article'] p"},
+         "author": {"xpath": "//meta[@property='article:author']/@content"},
+         "min_body_len": 200,
+     }},
 ]
 
 # ---------------------------------------------------------------------------

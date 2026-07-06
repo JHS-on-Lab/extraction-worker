@@ -6,6 +6,11 @@ render_mode 에 따라 동작이 다르다:
   headless_with_iframe — 로드된 iframe 내용을 외부 HTML 에 주입해 반환.
                          iframe 안의 콘텐츠를 domain rules 로 추출해야 할 때 사용.
                          (예: finance.naver.com 종목토론)
+  headless_with_shadow — open shadow root 내용을 외부 HTML 에 주입해 반환.
+                         page.content() 는 shadow DOM 을 포함하지 않으므로
+                         (selectolax 도 라이브 페이지가 아닌 문자열만 다뤄 마찬가지),
+                         커스텀 엘리먼트 안에 본문이 있는 사이트에 사용.
+                         (예: msn.com cp-article)
 
 사용하려면:
   pip install playwright
@@ -48,6 +53,7 @@ class HeadlessFetcher:
         self._ensure_browser()
 
         with_iframe = (render == RenderMode.HEADLESS_IFRAME)
+        with_shadow = (render == RenderMode.HEADLESS_SHADOW)
         # networkidle 은 광고/추적 스크립트가 많은 페이지에서 타임아웃 위험.
         # load 이벤트는 메인 문서와 iframe 리소스가 모두 로드된 시점을 보장.
         wait_until  = "load" if with_iframe else "domcontentloaded"
@@ -71,6 +77,8 @@ class HeadlessFetcher:
             if with_iframe:
                 _wait_for_frames(page, timeout_ms=self._timeout_ms)
                 html = _inject_frames(page, html)
+            elif with_shadow:
+                html = _inject_shadow_roots(page, html)
         finally:
             page.close()
 
@@ -107,7 +115,11 @@ def fetch_by_render_mode(
 ) -> FetchResult:
     """render_mode 문자열에 따라 적절한 fetcher 를 선택해 FetchResult 를 반환한다."""
     if render_mode == RenderMode.HEADLESS_IFRAME:
-        return headless_fetcher.fetch(url, render=RenderMode.HEADLESS_IFRAME)
+        return headless_fetcher.fetch(url, render=RenderMode.HEADLESS_IFRAME,
+                                      wait_for_selector=wait_for_selector)
+    if render_mode == RenderMode.HEADLESS_SHADOW:
+        return headless_fetcher.fetch(url, render=RenderMode.HEADLESS_SHADOW,
+                                      wait_for_selector=wait_for_selector)
     if render_mode == RenderMode.HEADLESS:
         return headless_fetcher.fetch(url, render=RenderMode.HEADLESS,
                                       wait_for_selector=wait_for_selector)
@@ -144,3 +156,43 @@ def _inject_frames(page, outer_html: str) -> str:
     if injections:
         outer_html = outer_html.replace("</body>", "\n".join(injections) + "\n</body>")
     return outer_html
+
+
+def _inject_shadow_roots(page, outer_html: str) -> str:
+    """
+    open shadow root 를 가진 커스텀 엘리먼트의 내용을 외부 HTML 에 주입한다.
+    한 페이지에 광고·내비게이션 등 shadow root 를 쓰는 위젯이 여러 개 섞여
+    있을 수 있어(예: msn.com 은 14개), 순회 순서(index)만으로는 domain rules
+    셀렉터가 불안정하다. 각 wrapper 에 원본 태그명을 data-shadow-host 로
+    남겨 `div[data-shadow-host="cp-article"]` 처럼 안정적으로 선택하게 한다.
+    <div id="shadow_{n}" data-shadow-host="{tagName}"> 형태로 </body> 앞에 삽입된다.
+
+    page.content() 는 shadow DOM 을 포함하지 않으므로, JS 로 직접 순회해
+    shadowRoot.innerHTML 을 모아온다. closed 모드 shadow root 는 스크립트로도
+    접근 불가하므로 대상에서 제외된다(사이트가 closed 를 쓰면 이 방법 자체가 무력화됨).
+    """
+    try:
+        shadow_hosts: list[dict] = page.evaluate("""() => {
+            const results = [];
+            const walk = (root) => {
+                for (const el of root.querySelectorAll('*')) {
+                    if (el.shadowRoot) {
+                        results.push({tag: el.tagName.toLowerCase(), html: el.shadowRoot.innerHTML});
+                        walk(el.shadowRoot);  // 중첩 shadow root 대응
+                    }
+                }
+            };
+            walk(document);
+            return results;
+        }""")
+    except Exception:
+        shadow_hosts = []
+
+    if not shadow_hosts:
+        return outer_html
+
+    injections = [
+        f'<div id="shadow_{i}" data-shadow-host="{h["tag"]}">{h["html"]}</div>'
+        for i, h in enumerate(shadow_hosts)
+    ]
+    return outer_html.replace("</body>", "\n".join(injections) + "\n</body>")

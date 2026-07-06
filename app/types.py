@@ -36,6 +36,7 @@ class RenderMode(str, Enum):
     STATIC          = "static"
     HEADLESS        = "headless"
     HEADLESS_IFRAME = "headless_with_iframe"  # iframe 내용을 외부 HTML에 주입
+    HEADLESS_SHADOW = "headless_with_shadow"  # open shadow root 내용을 외부 HTML에 주입 (예: msn.com cp-article)
 
 
 # ---------------------------------------------------------------------------
