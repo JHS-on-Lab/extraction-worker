@@ -41,8 +41,12 @@ _RULES: list[dict] = [
         "render_mode": "static",
         "crawl_delay_ms": 500,
         "rules_enabled": True,
-        "updated_by": "seed",
+        "updated_by": "domain-analysis-2",
         # React SPA iframe — CSS 추출 불가, JSON API 직접 호출
+        # postType=itemNewsResearch(증권사 리서치 공유 게시글)는 contentHtml 이 null이고
+        # result.title 도 "새로운 리서치가 있어요" 같은 공통 안내문이라 일반 게시글과 다름.
+        # 실제 제목/본문은 contentJsonSwReplaced(JSON 문자열)의 title/content 에 있음 —
+        # body_json_fallback 으로 body_html 이 없을 때만 이걸 파싱해 title/body 를 채운다.
         "rules_json": {
             "json_api": {
                 "url_template": "https://m.stock.naver.com/front-api/discussion/detail?id={nid}",
@@ -50,6 +54,7 @@ _RULES: list[dict] = [
                 "title":        "result.title",
                 "body_html":    "result.contentHtml",
                 "body_css":     ".se-module-text",
+                "body_json_fallback": "result.contentJsonSwReplaced",
                 "published_at": "result.writtenAt",
                 "author":       "result.writer.nickname",
             },
