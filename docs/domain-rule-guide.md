@@ -151,6 +151,15 @@ python scripts/fetch_html.py --url "..."
 
 → 더 큰 컨테이너 셀렉터로 변경하거나 `min_body_len` 값을 낮춘다.
 
+> **도메인 규칙이 없는 상태에서 BODY_TOO_SHORT가 나는 경우** — `library_chain.py`에
+> 자체 안전망이 있다. trafilatura(`favor_precision=True`)가 본문 대신 바이라인/날짜
+> 같은 엉뚱한 영역만 짧게(200자 미만) 잡으면, readability도 자동으로 시도해서 더 긴
+> 쪽을 채택한다 (예: `www.fomos.kr` — trafilatura는 24자만, readability는 849자
+> 정상 추출). 둘 다 시도해도 짧으면 그대로 실패하니, 이 경우엔 Step 1~3대로 CSS
+> 규칙을 작성한다. 이 폴백은 최후의 안전망일 뿐 — 도메인 규칙이 있으면 그게 항상
+> library_chain보다 먼저 시도되고 더 정확하므로(`app/extraction/extractor.py`),
+> 반복 실패하는 도메인은 폴백에 기대지 말고 규칙을 등록하는 걸 권장한다.
+
 ### TITLE_EMPTY
 
 제목 셀렉터 미스. `og:title` 메타 태그를 fallback으로 자주 사용한다.

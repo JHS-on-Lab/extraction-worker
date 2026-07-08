@@ -1,12 +1,19 @@
 """
 라이브러리를 이용한 본문 추출.
 
-trafilatura 를 먼저 시도하고, 결과가 없으면 readability 로 재시도한다.
-둘 다 실패하거나 본문이 너무 짧으면(200자 미만) ExtractionFailure 를 반환한다.
+trafilatura 를 먼저 시도하고, 결과가 없거나 너무 짧으면(200자 미만) readability 로도
+시도해 더 긴 쪽을 채택한다. 그래도 둘 다 실패하거나 짧으면 ExtractionFailure 를 반환한다.
 
 trafilatura 가 1순위인 이유:
   웹 콘텐츠 본문 추출에 특화돼 있어 광고·메뉴 등 노이즈를 잘 걸러낸다.
-  단, 결과가 없는 경우가 있어 범용 라이브러리인 readability 를 대비책으로 둔다.
+  단, favor_precision=True 모드라 본문 대신 바이라인/날짜 같은 엉뚱한 짧은 영역만
+  잡아내는 경우가 있다(예: www.fomos.kr, "박상진2026-07-06 17:21" 24자만 반환).
+  trafilatura 가 완전히 빈 결과를 반환하는 경우도 있어, 두 상황 모두 범용 라이브러리인
+  readability 를 대비책으로 둔다.
+
+이 라이브러리 체인 폴백은 최후의 안전망이다 — 특정 도메인에서 반복 실패하면
+scripts/seed_domain_rules.py 에 전용 CSS/XPath 규칙을 추가하는 게 더 정확하고 우선한다
+(도메인 규칙이 있으면 rule_engine 이 이 체인보다 먼저 시도됨, app/extraction/extractor.py 참고).
 
 JS 렌더링이 필요한 페이지(SPA, 페이월 등)는 정적 HTML 만으로는 추출이 불가능하다.
 이런 경우 PARSE_ERROR 또는 BODY_TOO_SHORT 로 실패하며, headless 렌더링이 필요하다.
@@ -61,8 +68,12 @@ class LibraryChain:
     ) -> CollectedContent | ExtractionFailure:
         """HTML → CollectedContent. 실패 시 ExtractionFailure."""
         result = _try_trafilatura(html)
-        if result is None:
-            result = _try_readability(html)
+        # trafilatura 가 아예 실패했거나(None) 너무 짧은 영역만 잡았으면(예: 바이라인만)
+        # readability 도 시도해서 더 긴 쪽을 채택한다.
+        if result is None or len(result[1]) < _MIN_BODY_LEN:
+            fallback = _try_readability(html)
+            if fallback is not None and (result is None or len(fallback[1]) > len(result[1])):
+                result = fallback
 
         if result is None:
             return ExtractionFailure(
