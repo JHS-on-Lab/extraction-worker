@@ -581,6 +581,70 @@ _RULES: list[dict] = [
                           "date_format": "%Y.%m.%d %H:%M"},
          "min_body_len": 100,
      }},
+
+    # www.baotintuc.vn (베트남 TTXVN): OpenSSL 3.x가 legacy_renegotiation 이 필요한
+    # 서버(구형 ASP.NET/IIS)와의 핸드셰이크를 기본 거부(UNSAFE_LEGACY_RENEGOTIATION_DISABLED).
+    # curl은 정상 응답하지만 httpx(OpenSSL 3.x)는 실패 — legacy_renegotiation 규칙으로
+    # OP_LEGACY_SERVER_CONNECT를 켠 SSL 컨텍스트를 사용하도록 fetcher에 지시.
+    # 본문: div.contents (관련기사/다음기사 위젯을 감싸는 div.content 대신 안쪽만 선택).
+    # published_at: meta 값이 ISO 8601 + 베트남 오프셋(+07:00) — %z로 파싱 후 KST 변환.
+    {"host": "baotintuc.vn",          "render_mode": "static", "crawl_delay_ms": 1000,
+     "rules_enabled": True, "updated_by": "domain-analysis",
+     "rules_json": {
+         "legacy_renegotiation": True,
+         "title":        {"xpath": "//meta[@property='og:title']/@content"},
+         "body":         {"css": "div.contents"},
+         "author":       {"css": "div.author"},
+         "published_at": {"xpath": "//meta[@property='article:published_time']/@content",
+                          "date_format": "%Y-%m-%dT%H:%M:%S%z"},
+         "min_body_len": 100,
+     }},
+
+    # www.seouleconews.com: 인증서가 완전히 다른 도메인(www.healthinnews.co.kr) 것이 나오고
+    # 그마저도 2020년에 만료됨 — 공유호스팅 설정 오류로 추정. HTTPS 자체가 구조적으로 불가하니
+    # force_http로 우회 (www.sisacast.kr/www.celuvmedia.com과 동일 패턴).
+    # 본문/작성자/날짜 구조는 www.ikld.kr, www.sisacast.kr과 같은 CMS(그누보드 계열)이나
+    # info-text가 <li> 로 깔끔히 분리돼 있어 xpath는 li 단위로 지정.
+    {"host": "www.seouleconews.com", "render_mode": "static", "crawl_delay_ms": 1000,
+     "rules_enabled": True, "updated_by": "domain-analysis",
+     "rules_json": {
+         "force_http": True,
+         "title":        {"css": "div.article-head-title"},
+         "body":         {"css": "div#article-view-content-div"},
+         "author":       {"xpath": "normalize-space((//div[contains(@class,'info-text')]//li[contains(.,'기자')])[1])"},
+         "published_at": {"xpath": "substring-after(normalize-space((//div[contains(@class,'info-text')]//li[contains(.,'승인')])[1]), '승인 ')",
+                          "date_format": "%Y.%m.%d %H:%M"},
+         "min_body_len": 100,
+     }},
+
+    # www.financialreview.co.kr: www.seouleconews.com과 완전히 동일한 CMS/인증서 문제
+    # (다른 도메인 인증서가 나오고 만료됨) — 같은 규칙 그대로 재사용.
+    {"host": "www.financialreview.co.kr", "render_mode": "static", "crawl_delay_ms": 1000,
+     "rules_enabled": True, "updated_by": "domain-analysis",
+     "rules_json": {
+         "force_http": True,
+         "title":        {"css": "div.article-head-title"},
+         "body":         {"css": "div#article-view-content-div"},
+         "author":       {"xpath": "normalize-space((//div[contains(@class,'info-text')]//li[contains(.,'기자')])[1])"},
+         "published_at": {"xpath": "substring-after(normalize-space((//div[contains(@class,'info-text')]//li[contains(.,'승인')])[1]), '승인 ')",
+                          "date_format": "%Y.%m.%d %H:%M"},
+         "min_body_len": 100,
+     }},
+
+    # www.fomos.kr: SSL 문제 아님 — trafilatura(favor_precision=True)가 본문 대신
+    # byline/날짜(p.sub_tit)만 24자로 뽑아내 body_len 미달로 실패. readability는
+    # 정상 추출하지만 library_chain이 trafilatura 결과가 있으면(짧아도) readability로
+    # 안 넘어가는 구조라 방치됨. div.view_text(itemprop=articleBody)가 진짜 본문 컨테이너.
+    # /redirect/news_view?... 는 /esports/news_view?...로 302 리다이렉트(follow_redirects로 처리됨).
+    {"host": "www.fomos.kr", "render_mode": "static", "crawl_delay_ms": 1000,
+     "rules_enabled": True, "updated_by": "domain-analysis",
+     "rules_json": {
+         "title":        {"xpath": "//meta[@property='og:title']/@content"},
+         "body":         {"css": "div.view_text"},
+         "author":       {"css": "p.sub_tit span:nth-child(1)"},
+         "published_at": {"css": "p.sub_tit span:nth-child(2)", "date_format": "%Y-%m-%d %H:%M"},
+         "min_body_len": 100,
+     }},
 ]
 
 # ---------------------------------------------------------------------------
@@ -609,12 +673,19 @@ def main() -> None:
 
     print(f"삽입 대상: {len(_RULES)}개 도메인")
 
-    inserted = updated = 0
     with db_context() as engine:
         with engine.begin() as conn:
+            # ON DUPLICATE KEY UPDATE 의 rowcount 는 신규/기존-무변경 여부를 신뢰성 있게
+            # 구분하지 못한다(둘 다 1로 나옴). 실행 전 기존 host 집합을 미리 조회해
+            # 직접 비교하는 방식으로 INSERT/UPDATE 를 정확히 집계한다.
+            existing_hosts = {
+                row[0] for row in conn.execute(text("SELECT host FROM t_domain")).fetchall()
+            }
+
+            inserted = updated = 0
             for rule in _RULES:
                 rules_json = rule.get("rules_json")
-                result = conn.execute(_UPSERT_SQL, {
+                conn.execute(_UPSERT_SQL, {
                     "host":           rule["host"],
                     "rules_json":     json.dumps(rules_json, ensure_ascii=False) if rules_json else None,
                     "rules_enabled":  rule.get("rules_enabled", True),
@@ -622,10 +693,10 @@ def main() -> None:
                     "crawl_delay_ms": rule.get("crawl_delay_ms"),
                     "updated_by":     rule.get("updated_by", "seed"),
                 })
-                if result.rowcount == 1:
-                    inserted += 1
-                else:
+                if rule["host"] in existing_hosts:
                     updated += 1
+                else:
+                    inserted += 1
 
     print(f"완료: INSERT {inserted}건, UPDATE {updated}건 (총 {inserted + updated}건)")
 
