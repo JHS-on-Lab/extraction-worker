@@ -41,15 +41,19 @@ class HttpFetcher:
     def __init__(self, timeout: float = 15.0) -> None:
         self._timeout = timeout
 
-    def fetch(self, url: str) -> FetchResult:
+    def fetch(self, url: str, *, allow_legacy_renegotiation: bool = False) -> FetchResult:
         """
         URL 을 GET 으로 가져와 FetchResult 반환.
         - 리다이렉트 자동 추적 (구글 RSS 중간 URL 처리)
         - HTTP 오류(4xx/5xx)는 예외 없이 FetchResult(status_code=N, html="") 반환
         - 네트워크 오류(timeout, connect)는 재raise — 호출자가 classify_exception 으로 처리
+        - allow_legacy_renegotiation: 구형 TLS 재협상 서버(예: baotintuc.vn) 대응
         """
         start = time.monotonic()
-        with make_client(timeout=self._timeout) as client:
+        with make_client(
+            timeout=self._timeout,
+            allow_legacy_renegotiation=allow_legacy_renegotiation,
+        ) as client:
             resp = client.get(url)
 
         elapsed_ms = (time.monotonic() - start) * 1000

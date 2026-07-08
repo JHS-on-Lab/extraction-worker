@@ -68,7 +68,9 @@ published_at 규칙:
   "date_format" — strptime 포맷 문자열. 미지정 시 날짜 파싱을 시도하지 않는다.
   json_api 모드에서 published_at 가 ISO 8601 이면 date_format 없이도 자동 파싱.
   파싱 실패 시 None 으로 폴백한다 (추출 전체를 실패시키지 않는다).
-  타임존은 KST(UTC+9) 고정.
+  date_format 에 %z 등 오프셋이 없으면 원본 문자열이 이미 KST 현지시각이라고
+  가정해 KST 로 라벨링한다. %z 로 오프셋이 파싱되면(예: 베트남 UTC+7) 그 값을
+  기준으로 KST 로 변환한다 (예: baotintuc.vn).
 
 도메인 규칙은 TTL 캐시에 보관한다 (RULES_CACHE_TTL_SECONDS, 기본 60초).
 재배포 없이 DB 에서 rules_json 을 수정하면 캐시 만료 후 자동 반영된다.
@@ -446,13 +448,20 @@ def _apply_rule(html: str, rule: dict | None) -> str:
 
 
 def _parse_date(text: str, date_format: str | None) -> datetime | None:
-    """텍스트를 KST datetime 으로 파싱한다. 실패하면 None."""
+    """텍스트를 KST datetime 으로 파싱한다. 실패하면 None.
+
+    date_format 에 %z 로 오프셋이 파싱되면 그 시각 기준으로 KST 변환하고,
+    오프셋이 없으면(naive) 원본이 이미 KST 현지시각이라고 가정해 그대로 라벨링한다.
+    """
     if not text or not date_format:
         return None
     try:
-        return datetime.strptime(text.strip(), date_format).replace(tzinfo=_KST)
+        parsed = datetime.strptime(text.strip(), date_format)
     except ValueError:
         return None
+    if parsed.tzinfo is not None:
+        return parsed.astimezone(_KST)
+    return parsed.replace(tzinfo=_KST)
 
 
 def _extract_css(html: str, selector: str) -> str:

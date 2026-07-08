@@ -112,6 +112,7 @@ def fetch_by_render_mode(
     http_fetcher: "HttpFetcher",
     headless_fetcher: "HeadlessFetcher",
     wait_for_selector: str | None = None,
+    allow_legacy_renegotiation: bool = False,
 ) -> FetchResult:
     """render_mode 문자열에 따라 적절한 fetcher 를 선택해 FetchResult 를 반환한다."""
     if render_mode == RenderMode.HEADLESS_IFRAME:
@@ -123,7 +124,7 @@ def fetch_by_render_mode(
     if render_mode == RenderMode.HEADLESS:
         return headless_fetcher.fetch(url, render=RenderMode.HEADLESS,
                                       wait_for_selector=wait_for_selector)
-    return http_fetcher.fetch(url)
+    return http_fetcher.fetch(url, allow_legacy_renegotiation=allow_legacy_renegotiation)
 
 
 def _wait_for_frames(page, timeout_ms: int) -> None:

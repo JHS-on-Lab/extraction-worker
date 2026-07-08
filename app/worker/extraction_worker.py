@@ -167,9 +167,14 @@ def _process_one(
     if (raw_rules or {}).get("force_http") and url.startswith("https://"):
         url = "http://" + url[len("https://"):]
 
+    # legacy_renegotiation: 구형 TLS 재협상을 요구하는 서버용. OpenSSL 3.x가
+    # 기본 거부(UNSAFE_LEGACY_RENEGOTIATION_DISABLED)하는 걸 우회한다.
+    allow_legacy_renegotiation = bool((raw_rules or {}).get("legacy_renegotiation"))
+
     try:
         fr = fetch_by_render_mode(url, render_mode, fetcher, headless_fetcher,
-                                  wait_for_selector=wait_for_selector)
+                                  wait_for_selector=wait_for_selector,
+                                  allow_legacy_renegotiation=allow_legacy_renegotiation)
     except Exception as exc:
         error_code, is_permanent = classify_exception(exc)
         error_msg = f"{type(exc).__name__}: {exc}"
