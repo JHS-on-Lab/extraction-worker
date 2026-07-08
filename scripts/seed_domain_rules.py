@@ -264,18 +264,23 @@ _RULES: list[dict] = [
     },
 
     # ── 조선일보 (40건) ────────────────────────────────────────────────────────
+    # 2026-07 재확인: biz.chosun.com 과 동일하게 SSR→CSR 전환됨 — 정적 fetch 에서
+    # article-body 계열 클래스 전부 미노출(trafilatura/readability 도 PARSE_ERROR).
+    # headless 렌더링 후 실측 클래스로 교체. published_at: span.inputDate "입력 " 접두어
+    # 제거는 biz.chosun.com 룰과 동일 패턴.
     {
         "host": "www.chosun.com",
-        "render_mode": "static",
+        "render_mode": "headless",
         "crawl_delay_ms": 1000,
         "rules_enabled": True,
-        "updated_by": "domain-analysis",
+        "updated_by": "domain-analysis-3",
         "rules_json": {
-            "title":        {"css": "h1.article-header__title, h1[class*='title']"},
-            "body":         {"css": "section.article-body, div.article-body"},
-            "author":       {"css": "span.article-byline__name"},
-            "published_at": {"css": "time[class*='time'], span[class*='date']",
-                             "date_format": "%Y.%m.%d %H:%M"},
+            "headless_wait_for": "section.article-body",
+            "title":        {"css": "h1.article-header__headline"},
+            "body":         {"css": "section.article-body"},
+            "author":       {"css": "a.article-byline__author"},
+            "published_at": {"xpath": "substring-after(//span[contains(@class,'inputDate')],'입력 ')",
+                             "date_format": "%Y.%m.%d. %H:%M"},
             "min_body_len": 100,
         },
     },
@@ -643,6 +648,38 @@ _RULES: list[dict] = [
          "body":         {"css": "div.view_text"},
          "author":       {"css": "p.sub_tit span:nth-child(1)"},
          "published_at": {"css": "p.sub_tit span:nth-child(2)", "date_format": "%Y-%m-%d %H:%M"},
+         "min_body_len": 100,
+     }},
+
+    # autotimes.co.kr: 인증서 체인이 깨져있음(self-signed/issuer 누락) — force_http로 우회.
+    # date_repoter 안 span 두 개가 각각 날짜/작성자(순서 고정) — nth 대신 인덱스 xpath로 안전하게 접근.
+    # 날짜 형식이 "년/월/일/시/분" 문자 리터럴 포함 — strptime 포맷에 그대로 넣으면 매칭됨.
+    {"host": "autotimes.co.kr", "render_mode": "static", "crawl_delay_ms": 1000,
+     "rules_enabled": True, "updated_by": "domain-analysis",
+     "rules_json": {
+         "force_http": True,
+         "title":        {"css": "h2.article_title"},
+         "body":         {"css": "div#ct"},
+         "author":       {"xpath": "normalize-space((//div[contains(@class,'date_repoter')]/span)[2])"},
+         "published_at": {"xpath": "substring-after(normalize-space((//div[contains(@class,'date_repoter')]/span)[1]), '입력 ')",
+                          "date_format": "%Y년%m월%d일 %H시%M분"},
+         "min_body_len": 100,
+     }},
+
+    # news.cpbc.co.kr: 순수 CSR — 정적 HTML은 <div id="app-cnbc-front"></div> 빈 셸뿐이라
+    # trafilatura/readability 둘 다 PARSE_ERROR. headless_wait_for 를 "#app-cnbc-front *"
+    # 처럼 아무 자식이나로 잡으면 GNB(헤더)만 로드된 시점에 캡처돼 본문이 비어있었음
+    # (GNB 컴포넌트가 본문보다 먼저 렌더링됨) — 실제 본문 헤더 요소(h3.ah_big_title)가
+    # 나타날 때까지 기다리도록 wait_for 셀렉터를 본문 전용으로 지정해 해결.
+    {"host": "news.cpbc.co.kr", "render_mode": "headless", "crawl_delay_ms": 1500,
+     "rules_enabled": True, "updated_by": "domain-analysis",
+     "rules_json": {
+         "headless_wait_for": "h3.ah_big_title",
+         "title":        {"css": "h3.ah_big_title"},
+         "body":         {"css": "div.ab_text.fsize4"},
+         "author":       {"css": "span.ahi_name"},
+         "published_at": {"xpath": "substring-after(normalize-space(//span[contains(@class,'ahi_date')]), '입력 ')",
+                          "date_format": "%Y.%m.%d.%H:%M"},
          "min_body_len": 100,
      }},
 ]
