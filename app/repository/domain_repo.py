@@ -24,7 +24,7 @@ class DomainRepo:
                     SELECT host, rules_json, rules_enabled, rules_version,
                            crawl_delay_ms, render_mode, proxy_tier,
                            cooldown_until, recent_fail_count,
-                           success_rate, avg_body_len
+                           success_rate, avg_body_len, excluded
                     FROM t_domain
                     WHERE host = :host
                 """),

@@ -121,6 +121,7 @@ class CrawlUrlRepo:
                         OR (a.status = 'failed_transient' AND a.next_retry_at <= NOW())
                     )
                     AND (d.cooldown_until IS NULL OR d.cooldown_until <= NOW())
+                    AND (d.excluded IS NULL OR d.excluded = 0)
                     {source_filter}
                     ORDER BY a.priority DESC, a.id ASC
                     LIMIT 20
