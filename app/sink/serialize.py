@@ -9,7 +9,10 @@ Solr 문서 필드:
   crawl_runtime_key — {$HOSTNAME}_{runtime_name}
   host              — URL 의 netloc
   site              — host 와 동일
-  url               — 수집 URL
+  url               — 수집 URL. source_type 이 있으면 "{url}#{source_type}" 형태로 붙여
+                      저장한다 — Solr 스키마에 source_type 전용 필드가 없어 row 단위로
+                      출처를 구분할 수 있는 유일한 자리이기 때문. id 계산과 실제 fetch는
+                      정규화(normalize) 과정에서 fragment 가 제거된 URL을 쓰므로 영향 없다.
   title             — 제목
   content           — 본문
   author            — 저자 (배열, 값이 있을 때만 포함)
