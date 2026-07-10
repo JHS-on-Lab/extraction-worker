@@ -9,10 +9,8 @@ Solr 문서 필드:
   crawl_runtime_key — {$HOSTNAME}_{runtime_name}
   host              — URL 의 netloc
   site              — host 와 동일
-  url               — 수집 URL. source_type 이 있으면 "{url}#{source_type}" 형태로 붙여
-                      저장한다 — Solr 스키마에 source_type 전용 필드가 없어 row 단위로
-                      출처를 구분할 수 있는 유일한 자리이기 때문. id 계산과 실제 fetch는
-                      정규화(normalize) 과정에서 fragment 가 제거된 URL을 쓰므로 영향 없다.
+  url               — 수집 URL (source_type 은 더 이상 fragment 로 붙이지 않는다 —
+                      2026-07 부터 Solr 스키마에 source_type 전용 필드가 생겨 그쪽으로 옮김)
   title             — 제목
   content           — 본문
   author            — 저자 (배열, 값이 있을 때만 포함)
@@ -20,6 +18,7 @@ Solr 문서 필드:
   doc_version       — 1 고정
   keyword_id        — t_keyword.id 문자열 변환 (배열, 값이 있을 때만 포함)
   etc_exact1        — "1" 고정
+  source_type       — t_crawl_url.source_type (값이 있을 때만 포함)
 """
 
 from __future__ import annotations
@@ -57,15 +56,13 @@ def to_doc(content: CollectedContent, crawler_type: str, crawl_runtime_key: str)
         body   = content.body
         author = content.author
 
-    url = f"{content.url}#{content.source_type}" if content.source_type else content.url
-
     doc: dict = {
         "id":                crawl_id(content.url),
         "crawler_type":      crawler_type,
         "crawl_runtime_key": crawl_runtime_key,
         "host":              host,
         "site":              host,
-        "url":               url,
+        "url":               content.url,
         "title":             content.title,
         "content":           body,
         "tstamp":            tstamp,
@@ -78,6 +75,9 @@ def to_doc(content: CollectedContent, crawler_type: str, crawl_runtime_key: str)
 
     if content.keyword_id is not None:
         doc["keyword_id"] = [str(content.keyword_id)]
+
+    if content.source_type:
+        doc["source_type"] = content.source_type
 
     return doc
 
