@@ -17,6 +17,12 @@ from app.types import CollectedContent
 
 
 class FileSink:
+    # 매 write() 가 파일에 즉시 append+flush 되어 이미 durable 하므로 배치가
+    # 필요 없다 — extraction_worker.py 가 batch_size 를 기준으로 flush 타이밍을
+    # 정하므로, 1로 두면 매 write() 직후 바로 flush()(no-op)가 호출되고 곧바로
+    # mark_stored 로 이어져 SolrSink 도입 이전과 동일한 즉시-반영 동작을 유지한다.
+    batch_size = 1
+
     def __init__(
         self,
         crawler_type: str,
@@ -26,6 +32,10 @@ class FileSink:
         self._crawler_type      = crawler_type
         self._crawl_runtime_key = crawl_runtime_key
         self._base              = Path(base_dir or config.FILE_SINK_DIR)
+
+    def flush(self) -> None:
+        """파일에는 write() 시점에 이미 즉시 기록되므로 할 일이 없다."""
+        pass
 
     def write(self, content: CollectedContent) -> None:
         date_str = content.collected_at.astimezone(timezone.utc).strftime("%Y-%m-%d")

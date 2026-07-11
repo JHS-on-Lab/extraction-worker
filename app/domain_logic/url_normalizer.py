@@ -124,7 +124,12 @@ def _lookup3ycs64(s: str, start: int, end: int, initval: int) -> int:
     return result
 
 
-_JSESSIONID = re.compile(r";jsessionid=.*?(?=\?)")
+# 뒤에 쿼리스트링(?)이 있어야만 매치되는 lookahead 방식이었어서, URL 끝에
+# ;jsessionid=... 만 있고 쿼리스트링이 없으면 아예 매치가 안 돼 세션ID가 그대로
+# 남았다(같은 문서가 세션마다 다른 crawl_id 를 받아 Solr 에 중복 생성됨).
+# [^?#]* 로 바꿔 쿼리스트링/프래그먼트가 있든 없든(둘 다 없으면 끝까지) 항상
+# 제거되게 한다.
+_JSESSIONID = re.compile(r";jsessionid=[^?#]*", re.IGNORECASE)
 _HEX = "0123456789abcdef"
 
 

@@ -183,7 +183,7 @@ def _run_db_mode(args: argparse.Namespace) -> None:
                 from app.types import ErrorCode
                 url_repo.mark_failed(item["id"], error_code=ErrorCode.UNKNOWN,
                                      error_msg=str(exc), is_permanent=False,
-                                     next_retry_at=None)
+                                     next_retry_at=None, worker_id=args.worker_id)
                 return
 
             print(f"status : {fr.status_code}")
@@ -204,7 +204,7 @@ def _run_db_mode(args: argparse.Namespace) -> None:
                 url_repo.mark_failed(item["id"], error_code=result.error_code,
                                      error_msg=result.error_msg,
                                      is_permanent=result.is_permanent,
-                                     next_retry_at=None)
+                                     next_retry_at=None, worker_id=args.worker_id)
                 return
 
             print(f"method      : {result.extraction_method}")
@@ -220,7 +220,12 @@ def _run_db_mode(args: argparse.Namespace) -> None:
 
             print("\n=== Sink ===")
             sink.write(result)
-            url_repo.mark_stored(item["id"], extraction_method=result.extraction_method)
+            # 이 스크립트는 단발성 실행이라 배치를 기다릴 이유가 없다 — write() 직후
+            # 바로 flush() 해서 실제로 저장소에 반영됐는지 확인하고, 성공했을 때만
+            # stored 로 표시한다(안 그러면 SolrSink 는 버퍼링만 하고 끝나 실제로는
+            # Solr 에 안 들어갔는데 DB만 stored 로 남는다).
+            sink.flush()
+            url_repo.mark_stored(item["id"], extraction_method=result.extraction_method, worker_id=args.worker_id)
             domain_repo.upsert_health(host, success=True, body_len=result.body_len)
             print("저장 완료.")
         finally:

@@ -7,7 +7,10 @@
 
 해결:
   5분마다 "extracting 상태인데 CLAIM_TIMEOUT_SECONDS(기본 300초) 이상 지난 행"을 찾아
-  다시 discovered 로 되돌린다. 그러면 정상 워커가 다시 집어가 처리한다.
+  attempt_count 를 늘리고 discovered 로 되돌린다(그러면 정상 워커가 다시 집어가
+  처리한다). attempt_count 가 MAX_ATTEMPTS 에 도달하면 dead 로 처리해, 구조적으로
+  항상 타임아웃나는 URL(예: 특정 페이지에서 headless 가 매번 멈추는 경우)이
+  무한 재시도되는 것을 막는다.
 
 실행 방식:
   __main__.py 에서 extraction 워커를 시작할 때 daemon 스레드로 함께 띄운다.

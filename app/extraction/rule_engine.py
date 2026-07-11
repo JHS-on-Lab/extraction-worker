@@ -92,10 +92,18 @@ from urllib.parse import urlparse, parse_qs
 from selectolax.parser import HTMLParser
 
 from app import config
-from app.domain_logic.url_normalizer import normalize, url_hash
+from app.extraction._common import build_content, check_body_length, check_title
 from app.types import CollectedContent, ErrorCode, ExtractionFailure
 
 _KST = timezone(timedelta(hours=9))
+
+# 전략마다 min_body_len 기본값이 다른 이유:
+#   HTML 규칙  — 임의 CSS/XPath 라 셀렉터가 엉뚱한 짧은 영역을 잡을 위험이 커서 높게(200)
+#   next_data  — __NEXT_DATA__ JSON 은 이미 구조화돼 있어 중간 정도(100)
+#   json_api   — API 응답 필드는 대상이 명확해(예: 종목토론 짧은 글) 낮게(5)
+_DEFAULT_MIN_BODY_LEN_HTML      = 200
+_DEFAULT_MIN_BODY_LEN_NEXT_DATA = 100
+_DEFAULT_MIN_BODY_LEN_JSON_API  = 5
 
 
 class RuleEngine:
@@ -167,40 +175,22 @@ class RuleEngine:
             (published_at_rule or {}).get("date_format"),
         )
 
-        if not title:
-            return ExtractionFailure(
-                url=url,
-                error_code=ErrorCode.TITLE_EMPTY,
-                error_msg="rule extracted empty title",
-                is_permanent=True,
-            )
+        if failure := check_title(url, title, "rule_html"):
+            return failure
 
-        min_body = int(rules.get("min_body_len", 200))
-        if not body or len(body) < min_body:
-            return ExtractionFailure(
-                url=url,
-                error_code=ErrorCode.BODY_TOO_SHORT,
-                error_msg=f"rule extracted body_len={len(body)} < {min_body}",
-                is_permanent=False,
-            )
+        min_body = int(rules.get("min_body_len", _DEFAULT_MIN_BODY_LEN_HTML))
+        if failure := check_body_length(url, body, min_body, "rule_html"):
+            return failure
 
-        norm = normalize(url)
         has_css = any(
             isinstance(rules.get(f), dict) and "css" in rules[f]
             for f in ("title", "body")
         )
-        return CollectedContent(
-            url=norm,
-            url_hash=url_hash(norm),
-            source_type=source_type,
-            keyword=keyword,
-            keyword_id=keyword_id,
-            title=title.strip(),
-            body=body.strip(),
-            published_at=published_at,
-            author=author,
-            collected_at=datetime.now(_KST),
+        return build_content(
+            url=url, title=title, body=body,
+            source_type=source_type, keyword=keyword, keyword_id=keyword_id,
             extraction_method="rule:css" if has_css else "rule:xpath",
+            published_at=published_at, author=author,
         )
 
     def _extract_amp(
@@ -301,36 +291,18 @@ class RuleEngine:
         else:
             body = _json_path(obj, spec.get("body", ""))
 
-        if not title:
-            return ExtractionFailure(
-                url=url,
-                error_code=ErrorCode.TITLE_EMPTY,
-                error_msg="next_data: empty title",
-                is_permanent=True,
-            )
+        if failure := check_title(url, title, "next_data"):
+            return failure
 
-        min_body = int(rules.get("min_body_len", 100))
-        if not body or len(body) < min_body:
-            return ExtractionFailure(
-                url=url,
-                error_code=ErrorCode.BODY_TOO_SHORT,
-                error_msg=f"next_data: body_len={len(body)} < {min_body}",
-                is_permanent=False,
-            )
+        min_body = int(rules.get("min_body_len", _DEFAULT_MIN_BODY_LEN_NEXT_DATA))
+        if failure := check_body_length(url, body, min_body, "next_data"):
+            return failure
 
-        norm = normalize(url)
-        return CollectedContent(
-            url=norm,
-            url_hash=url_hash(norm),
-            source_type=source_type,
-            keyword=keyword,
-            keyword_id=keyword_id,
-            title=title.strip(),
-            body=body.strip(),
-            published_at=published_at,
-            author=author,
-            collected_at=datetime.now(_KST),
+        return build_content(
+            url=url, title=title, body=body,
+            source_type=source_type, keyword=keyword, keyword_id=keyword_id,
             extraction_method="rule:next_data",
+            published_at=published_at, author=author,
         )
 
     def _extract_json_api(
@@ -419,36 +391,18 @@ class RuleEngine:
         else:
             body = _json_path(data, spec.get("body", ""))
 
-        if not title:
-            return ExtractionFailure(
-                url=url,
-                error_code=ErrorCode.TITLE_EMPTY,
-                error_msg="json_api: empty title",
-                is_permanent=True,
-            )
+        if failure := check_title(url, title, "json_api"):
+            return failure
 
-        min_body = int(rules.get("min_body_len", 5))
-        if not body or len(body) < min_body:
-            return ExtractionFailure(
-                url=url,
-                error_code=ErrorCode.BODY_TOO_SHORT,
-                error_msg=f"json_api: body_len={len(body)} < {min_body}",
-                is_permanent=False,
-            )
+        min_body = int(rules.get("min_body_len", _DEFAULT_MIN_BODY_LEN_JSON_API))
+        if failure := check_body_length(url, body, min_body, "json_api"):
+            return failure
 
-        norm = normalize(url)
-        return CollectedContent(
-            url=norm,
-            url_hash=url_hash(norm),
-            source_type=source_type,
-            keyword=keyword,
-            keyword_id=keyword_id,
-            title=title.strip(),
-            body=body.strip(),
-            published_at=published_at,
-            author=author,
-            collected_at=datetime.now(_KST),
+        return build_content(
+            url=url, title=title, body=body,
+            source_type=source_type, keyword=keyword, keyword_id=keyword_id,
             extraction_method="rule:json_api",
+            published_at=published_at, author=author,
         )
 
 

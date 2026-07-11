@@ -22,6 +22,7 @@ from __future__ import annotations
 import json
 import logging
 import time
+from dataclasses import dataclass
 from datetime import datetime, timezone, timedelta
 
 from app import config
@@ -38,13 +39,27 @@ from app.repository.db import db_context
 from app.repository.domain_repo import DomainRepo
 from app.sink import make_sink
 from app.ports import Sink
-from app.types import ErrorCode, ExtractionFailure, RenderMode, SinkUnavailableError
+from app.types import ErrorCode, ExtractionFailure, RenderMode
 
 logger = logging.getLogger(__name__)
 
 KST        = timezone(timedelta(hours=9))
 _IDLE_SEC  = 10
 _ERROR_SEC = 5
+
+
+@dataclass
+class _PendingStore:
+    """sink.write() 는 성공했지만 아직 flush() 로 확정되지 않은 항목.
+
+    sink.write() 직후 바로 mark_stored 를 부르면, SolrSink 처럼 write()가 버퍼링만
+    하는 구현에서 나중에 flush() 가 실패했을 때 DB엔 stored인데 실제 저장소엔 없는
+    문서가 생긴다(관찰된 Critical 버그). flush() 가 성공을 확인해준 뒤에야
+    mark_stored 를 부르기 위해 이 목록에 잠시 쌓아둔다.
+    """
+    item_id: int
+    extraction_method: str
+    attempt: int
 
 
 def run_extraction_loop(source: str, worker_id: str) -> None:
@@ -54,12 +69,12 @@ def run_extraction_loop(source: str, worker_id: str) -> None:
         extra={"phase": "startup", "worker_id": worker_id, "component": "extractor"},
     )
 
-    # HeadlessFetcher 는 브라우저 프로세스를 띄우므로 루프 밖에서 한 번만 생성한다.
-    with HeadlessFetcher() as headless_fetcher, db_context() as engine:
+    # HeadlessFetcher 는 브라우저 프로세스를, HttpFetcher 는 httpx.Client(커넥션 풀)를
+    # 루프 밖에서 한 번만 생성해 재사용한다.
+    with HeadlessFetcher() as headless_fetcher, HttpFetcher() as fetcher, db_context() as engine:
         url_repo    = CrawlUrlRepo(engine)
         log_repo    = CollectionLogRepo(engine)
         domain_repo = DomainRepo(engine)
-        fetcher     = HttpFetcher()
         limiter     = RateLimiter(domain_repo)
         extractor   = DefaultExtractor(domain_repo=domain_repo)  # domain_repo 주입 → 규칙 엔진 활성화
         sink        = make_sink(engine)  # SINK_TYPE 환경변수로 file / solr 선택
@@ -71,55 +86,121 @@ def run_extraction_loop(source: str, worker_id: str) -> None:
         batch_start_mono    = time.monotonic()
         source_filter       = None if source.upper() == "ALL" else source.upper()
 
-        while True:
-            now = time.monotonic()
-            if now - last_heartbeat >= heartbeat_interval:
-                logger.info(
-                    f"heartbeat processed={processed} success={urls_success} failed={urls_failed}",
-                    extra={"phase": "heartbeat", "worker_id": worker_id, "component": "extractor"},
-                )
-                last_heartbeat = now
-                _healthcheck.write()
-                _flush_log(log_repo, source, worker_id,
-                           batch_start_dt, batch_start_mono,
-                           processed, urls_success, urls_failed)
-                processed = urls_success = urls_failed = 0
-                batch_start_dt   = datetime.now(KST)
-                batch_start_mono = time.monotonic()
+        # sink.write() 로 버퍼링만 되고 아직 flush() 로 확정 안 된 항목들.
+        # sink.batch_size 개 쌓이면, 또는 idle/heartbeat/종료 시점에 flush 한다.
+        pending: list[_PendingStore] = []
 
-            try:
-                item = url_repo.claim_next(worker_id=worker_id, source=source_filter)
-            except Exception:
-                logger.exception(
-                    f"claim_next failed, sleeping {_ERROR_SEC}s",
-                    extra={"phase": "claim", "worker_id": worker_id, "component": "extractor"},
-                )
-                time.sleep(_ERROR_SEC)
-                continue
+        try:
+            while True:
+                now = time.monotonic()
+                if now - last_heartbeat >= heartbeat_interval:
+                    logger.info(
+                        f"heartbeat processed={processed} success={urls_success} failed={urls_failed}",
+                        extra={"phase": "heartbeat", "worker_id": worker_id, "component": "extractor"},
+                    )
+                    last_heartbeat = now
+                    _healthcheck.write()
+                    # 안전망 — 배치가 안 찰 만큼 처리량이 적어도 heartbeat 주기마다는 flush 되게 한다.
+                    _flush_pending(sink, url_repo, pending, worker_id)
+                    _flush_log(log_repo, source, worker_id,
+                               batch_start_dt, batch_start_mono,
+                               processed, urls_success, urls_failed)
+                    processed = urls_success = urls_failed = 0
+                    batch_start_dt   = datetime.now(KST)
+                    batch_start_mono = time.monotonic()
 
-            if item is None:
-                _flush_log(log_repo, source, worker_id,
-                           batch_start_dt, batch_start_mono,
-                           processed, urls_success, urls_failed)
-                processed = urls_success = urls_failed = 0
-                batch_start_dt   = datetime.now(KST)
-                batch_start_mono = time.monotonic()
-                logger.debug(
-                    f"no items, sleeping {_IDLE_SEC}s",
-                    extra={"phase": "idle", "worker_id": worker_id, "component": "extractor"},
-                )
-                time.sleep(_IDLE_SEC)
-                continue
+                try:
+                    item = url_repo.claim_next(worker_id=worker_id, source=source_filter)
+                except Exception:
+                    logger.exception(
+                        f"claim_next failed, sleeping {_ERROR_SEC}s",
+                        extra={"phase": "claim", "worker_id": worker_id, "component": "extractor"},
+                    )
+                    time.sleep(_ERROR_SEC)
+                    continue
 
-            success = _process_one(
-                item, url_repo, domain_repo,
-                fetcher, headless_fetcher, limiter, extractor, sink, worker_id
+                if item is None:
+                    # idle 상태에도 안 쌓인 채로 오래 방치되지 않게 flush.
+                    _flush_pending(sink, url_repo, pending, worker_id)
+                    _flush_log(log_repo, source, worker_id,
+                               batch_start_dt, batch_start_mono,
+                               processed, urls_success, urls_failed)
+                    processed = urls_success = urls_failed = 0
+                    batch_start_dt   = datetime.now(KST)
+                    batch_start_mono = time.monotonic()
+                    logger.debug(
+                        f"no items, sleeping {_IDLE_SEC}s",
+                        extra={"phase": "idle", "worker_id": worker_id, "component": "extractor"},
+                    )
+                    time.sleep(_IDLE_SEC)
+                    continue
+
+                success, store_info = _process_one(
+                    item, url_repo, domain_repo,
+                    fetcher, headless_fetcher, limiter, extractor, sink, worker_id
+                )
+                processed += 1
+                if store_info is not None:
+                    pending.append(store_info)
+                    if len(pending) >= sink.batch_size:
+                        _flush_pending(sink, url_repo, pending, worker_id)
+                if success:
+                    urls_success += 1
+                else:
+                    urls_failed += 1
+        finally:
+            # 정상 종료·예외·SIGTERM(sys.exit) 어느 경로로 빠져나가든 버퍼에 남은
+            # 항목을 반드시 flush 하거나(성공) failed_transient 로 되돌린다(실패) —
+            # 그냥 두면 DB엔 아무 기록도 없이(여전히 extracting) 그 항목들이 유실된다.
+            _flush_pending(sink, url_repo, pending, worker_id)
+
+
+def _flush_pending(
+    sink: Sink,
+    url_repo: CrawlUrlRepo,
+    pending: list[_PendingStore],
+    worker_id: str,
+) -> None:
+    """pending 에 쌓인 항목을 sink.flush() 로 확정 짓는다.
+
+    flush 성공 → 그제서야 DB 를 stored 로 표시(mark_stored).
+    flush 실패(circuit open 포함) → 이 배치 전체를 failed_transient 로 되돌려
+    나중에 재시도되게 한다. write() 직후 바로 mark_stored 를 부르던 예전 방식은
+    flush 가 나중에 실패하면 DB엔 stored인데 실제 저장소엔 없는 문서가 생겼다.
+    """
+    if not pending:
+        return
+
+    try:
+        sink.flush()
+    except Exception as exc:
+        logger.warning(
+            f"sink flush 실패 — {len(pending)}건 failed_transient 처리: {exc}",
+            extra={"phase": "sink_flush_error", "worker_id": worker_id, "component": "extractor"},
+        )
+        for p in pending:
+            ok = url_repo.mark_failed(
+                p.item_id, ErrorCode.UNKNOWN, f"sink flush failed: {exc}",
+                is_permanent=False, next_retry_at=next_retry_at(p.attempt),
+                worker_id=worker_id,
             )
-            processed += 1
-            if success:
-                urls_success += 1
-            else:
-                urls_failed += 1
+            if not ok:
+                logger.warning(
+                    f"mark_failed 스킵됨(claim 소유권 상실) item_id={p.item_id}",
+                    extra={"phase": "sink_flush_error", "worker_id": worker_id, "component": "extractor"},
+                )
+        pending.clear()
+        return
+
+    for p in pending:
+        ok = url_repo.mark_stored(p.item_id, extraction_method=p.extraction_method, worker_id=worker_id)
+        if not ok:
+            logger.warning(
+                f"mark_stored 스킵됨(claim 소유권 상실, 이미 다른 워커가 처리했거나 reaper가 회수함) "
+                f"item_id={p.item_id} — Solr 에는 이미 반영됐으나 이 워커의 DB 갱신은 무시됨",
+                extra={"phase": "claim_lost", "worker_id": worker_id, "component": "extractor"},
+            )
+    pending.clear()
 
 
 def _process_one(
@@ -132,8 +213,14 @@ def _process_one(
     extractor: DefaultExtractor,
     sink: Sink,
     worker_id: str,
-) -> bool:
-    """URL 하나를 처리한다. 성공 시 True, 실패 시 False 반환."""
+) -> tuple[bool, _PendingStore | None]:
+    """URL 하나를 처리한다.
+
+    반환: (success, store_info)
+      - 실패 시 (False, None) — 이미 mark_failed/mark_dead 로 DB 반영 완료.
+      - sink 기록 성공 시 (True, PendingStore) — 아직 DB 는 stored 로 표시 안 됨.
+        호출측이 _flush_pending() 으로 flush 확인 후 실제로 stored 표시해야 한다.
+    """
     item_id    = item["id"]
     url        = item["url"]
     host       = item["host"]
@@ -183,8 +270,8 @@ def _process_one(
             extra={**extra, "error_code": error_code.value},
         )
         _handle_failure(url_repo, domain_repo, item_id, host, attempt,
-                        error_code, error_msg, is_permanent)
-        return False
+                        error_code, error_msg, is_permanent, worker_id)
+        return False, None
 
     if fr.status_code >= 400:
         error_code, is_permanent = classify_http(fr.status_code)
@@ -194,8 +281,8 @@ def _process_one(
             extra={**extra, "error_code": error_code.value},
         )
         _handle_failure(url_repo, domain_repo, item_id, host, attempt,
-                        error_code, error_msg, is_permanent)
-        return False
+                        error_code, error_msg, is_permanent, worker_id)
+        return False, None
 
     # Extract
     result = extractor.extract(
@@ -209,23 +296,18 @@ def _process_one(
             extra={**extra, "error_code": result.error_code.value},
         )
         _handle_failure(url_repo, domain_repo, item_id, host, attempt,
-                        result.error_code, result.error_msg, result.is_permanent)
-        return False
+                        result.error_code, result.error_msg, result.is_permanent, worker_id)
+        return False, None
 
-    # Sink
+    # 본문 추출 자체는 성공했다 — 이후 sink 기록의 성패와 무관하게 이 host 는
+    # fetch/extract 관점에서 정상이었으므로 여기서 바로 반영한다(예전엔 sink.write()
+    # 이후에 호출돼서, sink 오류 시 성공/실패 어느 쪽으로도 health 가 갱신 안 됐다).
+    domain_repo.upsert_health(host, success=True, body_len=result.body_len)
+
+    # Sink — write() 는 버퍼링만 할 수 있다(SolrSink). 실제 저장 확정은 호출측이
+    # _flush_pending() 으로 처리하므로, 여기서는 mark_stored 를 부르지 않는다.
     try:
         sink.write(result)
-    except SinkUnavailableError as exc:
-        # circuit open — Solr 일시 장애. traceback 없이 warning 만 기록
-        logger.warning(f"sink unavailable url={url}: {exc}", extra=extra)
-        url_repo.mark_failed(
-            item_id,
-            error_code=ErrorCode.UNKNOWN,
-            error_msg=f"sink unavailable: {exc}",
-            is_permanent=False,
-            next_retry_at=next_retry_at(attempt),
-        )
-        return False
     except Exception as exc:
         logger.exception(f"sink write failed url={url}", extra=extra)
         url_repo.mark_failed(
@@ -234,16 +316,15 @@ def _process_one(
             error_msg=f"sink error: {exc}",
             is_permanent=False,
             next_retry_at=next_retry_at(attempt),
+            worker_id=worker_id,
         )
-        return False
+        return False, None
 
-    url_repo.mark_stored(item_id, extraction_method=result.extraction_method)
-    domain_repo.upsert_health(host, success=True, body_len=result.body_len)
     logger.info(
-        f"stored url={url} method={result.extraction_method} body={result.body_len}",
+        f"buffered url={url} method={result.extraction_method} body={result.body_len} (flush 대기)",
         extra=extra,
     )
-    return True
+    return True, _PendingStore(item_id=item_id, extraction_method=result.extraction_method, attempt=attempt)
 
 
 def _handle_failure(
@@ -255,6 +336,7 @@ def _handle_failure(
     error_code: ErrorCode,
     error_msg: str,
     is_permanent: bool,
+    worker_id: str,
 ) -> None:
     """실패를 기록하고 다음 상태를 결정한다.
 
@@ -266,12 +348,12 @@ def _handle_failure(
     domain_repo.upsert_health(host, success=False, body_len=None)
 
     if attempt + 1 >= config.MAX_ATTEMPTS:
-        url_repo.mark_dead(item_id, error_code, error_msg)
+        url_repo.mark_dead(item_id, error_code, error_msg, worker_id=worker_id)
     elif is_permanent:
-        url_repo.mark_failed(item_id, error_code, error_msg, True, None)
+        url_repo.mark_failed(item_id, error_code, error_msg, True, None, worker_id=worker_id)
     else:
         url_repo.mark_failed(item_id, error_code, error_msg, False,
-                             next_retry_at=next_retry_at(attempt))
+                             next_retry_at=next_retry_at(attempt), worker_id=worker_id)
 
 
 def _flush_log(

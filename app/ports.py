@@ -75,8 +75,18 @@ class Sink(Protocol):
     수집된 콘텐츠 저장소.
     구현체: FileSink(.jsonl), SolrSink.
     호출부 코드는 변경 없이 Sink 인터페이스만 사용한다.
+
+    write() 는 실제로 영속화됐다는 보장이 없다(SolrSink 는 버퍼링만 함) — 호출부는
+    batch_size 개마다(또는 idle/heartbeat/종료 시점에) flush() 를 명시적으로 호출해
+    성공을 확인한 뒤에야 그 항목들을 "저장 완료"로 취급해야 한다.
     """
 
+    batch_size: int  # 이 개수만큼 write() 가 쌓이면 flush() 를 호출하라는 신호. FileSink=1(즉시), SolrSink=SOLR_BATCH_SIZE
+
     def write(self, content: CollectedContent) -> None:
-        """콘텐츠를 저장한다. SolrSink는 crawl_id(url)로 멱등 upsert, FileSink는 append."""
+        """콘텐츠를 버퍼에 쓴다(또는 즉시 기록). SolrSink는 crawl_id(url)로 멱등 upsert, FileSink는 append."""
+        ...
+
+    def flush(self) -> None:
+        """버퍼링된 내용을 실제로 저장소에 반영한다. 실패 시 예외를 올린다(호출부가 대응)."""
         ...

@@ -22,6 +22,7 @@ from urllib.parse import urlparse
 
 from sqlalchemy import Engine, text
 
+from app import config
 from app.domain_logic.url_normalizer import normalize, url_hash
 from app.types import ErrorCode
 
@@ -151,10 +152,17 @@ class CrawlUrlRepo:
 
         return None
 
-    def mark_stored(self, item_id: int, extraction_method: str) -> None:
-        """추출 성공: status=stored, extraction_method 기록."""
+    def mark_stored(self, item_id: int, extraction_method: str, worker_id: str) -> bool:
+        """추출 성공: status=stored, extraction_method 기록.
+
+        WHERE 절에 status='extracting' AND claimed_by=:worker_id 를 명시해, reaper가
+        타임아웃으로 이미 회수(discovered로 되돌림)했거나 다른 워커가 다시 집어간
+        행을 뒤늦게 덮어쓰지 않는다 — 없으면 느린 워커의 지연 완료가 이미 다른
+        워커가 처리 중이거나 완료한 결과를 조용히 덮어쓸 수 있다.
+        반환: 실제로 갱신됐으면 True, 소유권을 이미 잃었으면 False.
+        """
         with self._engine.begin() as conn:
-            conn.execute(
+            result = conn.execute(
                 text("""
                     UPDATE t_crawl_url
                     SET status = 'stored',
@@ -162,10 +170,11 @@ class CrawlUrlRepo:
                         claimed_at = NULL,
                         claimed_by = NULL,
                         updated_at = NOW()
-                    WHERE id = :id
+                    WHERE id = :id AND status = 'extracting' AND claimed_by = :worker_id
                 """),
-                {"method": extraction_method, "id": item_id},
+                {"method": extraction_method, "id": item_id, "worker_id": worker_id},
             )
+        return result.rowcount > 0
 
     def mark_failed(
         self,
@@ -174,15 +183,19 @@ class CrawlUrlRepo:
         error_msg: str,
         is_permanent: bool,
         next_retry_at: datetime | None,
-    ) -> None:
+        worker_id: str,
+    ) -> bool:
         """
         추출 실패 처리.
         is_permanent=True  → failed_permanent (재시도 없음)
         is_permanent=False → failed_transient + next_retry_at 세팅
+
+        mark_stored 와 동일한 이유로 claim 소유권(status='extracting' AND
+        claimed_by=:worker_id)을 확인한다. 반환: 실제로 갱신됐으면 True.
         """
         status = "failed_permanent" if is_permanent else "failed_transient"
         with self._engine.begin() as conn:
-            conn.execute(
+            result = conn.execute(
                 text("""
                     UPDATE t_crawl_url
                     SET status          = :status,
@@ -193,7 +206,7 @@ class CrawlUrlRepo:
                         claimed_at      = NULL,
                         claimed_by      = NULL,
                         updated_at      = NOW()
-                    WHERE id = :id
+                    WHERE id = :id AND status = 'extracting' AND claimed_by = :worker_id
                 """),
                 {
                     "status":   status,
@@ -201,13 +214,18 @@ class CrawlUrlRepo:
                     "msg":      error_msg[:500],
                     "retry_at": next_retry_at,
                     "id":       item_id,
+                    "worker_id": worker_id,
                 },
             )
+        return result.rowcount > 0
 
-    def mark_dead(self, item_id: int, error_code: ErrorCode, error_msg: str) -> None:
-        """최대 시도 횟수 초과: status=dead."""
+    def mark_dead(self, item_id: int, error_code: ErrorCode, error_msg: str, worker_id: str) -> bool:
+        """최대 시도 횟수 초과: status=dead.
+
+        mark_stored 와 동일한 이유로 claim 소유권을 확인한다. 반환: 실제로 갱신됐으면 True.
+        """
         with self._engine.begin() as conn:
-            conn.execute(
+            result = conn.execute(
                 text("""
                     UPDATE t_crawl_url
                     SET status          = 'dead',
@@ -217,29 +235,43 @@ class CrawlUrlRepo:
                         claimed_at      = NULL,
                         claimed_by      = NULL,
                         updated_at      = NOW()
-                    WHERE id = :id
+                    WHERE id = :id AND status = 'extracting' AND claimed_by = :worker_id
                 """),
-                {"code": error_code.value, "msg": error_msg[:500], "id": item_id},
+                {"code": error_code.value, "msg": error_msg[:500], "id": item_id, "worker_id": worker_id},
             )
+        return result.rowcount > 0
 
     def recover_timed_out(self, timeout_seconds: int) -> int:
         """
-        status=extracting 이고 claimed_at 이 timeout_seconds 초 이상 지난 행을
-        discovered 로 되돌린다. (reaper 전용)
+        status=extracting 이고 claimed_at 이 timeout_seconds 초 이상 지난 행을 회수한다.
+        (reaper 전용)
+
+        attempt_count 를 증가시키고, 그 결과 MAX_ATTEMPTS 에 도달하면 dead 로,
+        아니면 discovered 로 되돌린다. attempt_count 를 안 늘리면 구조적으로 항상
+        타임아웃나는 URL(예: 특정 페이지에서 headless 가 매번 멈추는 경우)이
+        MAX_ATTEMPTS/dead 도달 없이 reaper 에 의해 영원히 재시도될 수 있었다.
         반환: 회수된 행 수
         """
         with self._engine.begin() as conn:
             result = conn.execute(
                 text("""
                     UPDATE t_crawl_url
-                    SET status     = 'discovered',
-                        claimed_at = NULL,
-                        claimed_by = NULL,
-                        updated_at = NOW()
+                    SET status = CASE WHEN attempt_count + 1 >= :max_attempts THEN 'dead' ELSE 'discovered' END,
+                        attempt_count   = attempt_count + 1,
+                        last_error_code = :code,
+                        last_error_msg  = :msg,
+                        claimed_at      = NULL,
+                        claimed_by      = NULL,
+                        updated_at      = NOW()
                     WHERE status = 'extracting'
                       AND claimed_at < NOW() - INTERVAL :sec SECOND
                 """),
-                {"sec": timeout_seconds},
+                {
+                    "sec": timeout_seconds,
+                    "max_attempts": config.MAX_ATTEMPTS,
+                    "code": ErrorCode.UNKNOWN.value,
+                    "msg": "claim timeout (reaper 회수)",
+                },
             )
         return result.rowcount
 

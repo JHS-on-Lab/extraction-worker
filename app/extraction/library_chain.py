@@ -22,9 +22,8 @@ JS 렌더링이 필요한 페이지(SPA, 페이월 등)는 정적 HTML 만으로
 from __future__ import annotations
 
 import re
-from datetime import datetime, timedelta, timezone
 
-from app.domain_logic.url_normalizer import normalize, url_hash
+from app.extraction._common import build_content, check_body_length, check_title
 from app.types import CollectedContent, ErrorCode, ExtractionFailure
 
 # trafilatura 가 반환하는 byline 에서 이름만 추출하기 위한 패턴
@@ -51,8 +50,8 @@ def _clean_author(raw: str | None) -> str | None:
         return m.group(1)
     return name or None
 
-KST = timezone(timedelta(hours=9))
-
+# 라이브러리 폴백은 도메인 규칙이 없는 임의 사이트를 상대해야 해서 노이즈가 많다 —
+# rule_engine 의 next_data(100)/json_api(5) 보다 훨씬 높은 문턱을 둔다.
 _MIN_BODY_LEN = 200
 
 
@@ -85,35 +84,15 @@ class LibraryChain:
 
         title, body, method, author = result
 
-        if not title:
-            return ExtractionFailure(
-                url=url,
-                error_code=ErrorCode.TITLE_EMPTY,
-                error_msg="title is empty after extraction",
-                is_permanent=True,
-            )
+        if failure := check_title(url, title, "library_chain"):
+            return failure
+        if failure := check_body_length(url, body, _MIN_BODY_LEN, "library_chain"):
+            return failure
 
-        if len(body) < _MIN_BODY_LEN:
-            return ExtractionFailure(
-                url=url,
-                error_code=ErrorCode.BODY_TOO_SHORT,
-                error_msg=f"body_len={len(body)} < {_MIN_BODY_LEN}",
-                is_permanent=False,
-            )
-
-        norm = normalize(url)
-        return CollectedContent(
-            url=norm,
-            url_hash=url_hash(norm),
-            source_type=source_type,
-            keyword=keyword,
-            keyword_id=keyword_id,
-            title=title.strip(),
-            body=body.strip(),
-            published_at=None,
-            author=author,
-            collected_at=datetime.now(KST),
-            extraction_method=method,
+        return build_content(
+            url=url, title=title, body=body,
+            source_type=source_type, keyword=keyword, keyword_id=keyword_id,
+            extraction_method=method, published_at=None, author=author,
         )
 
 

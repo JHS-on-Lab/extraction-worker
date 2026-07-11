@@ -38,8 +38,32 @@ def _decode_response(resp: httpx.Response) -> str:
 
 
 class HttpFetcher:
+    """요청마다 httpx.Client 를 새로 만들지 않고 재사용한다.
+
+    이전엔 fetch() 호출마다 `with make_client(...) as client:` 로 매번 새
+    Client(+커넥션)를 만들고 버렸다 — 매 요청이 TCP+TLS 핸드셰이크를 새로
+    해야 해서 비효율적이었다(연결 재사용/커넥션 풀링 이점이 없었음).
+
+    allow_legacy_renegotiation 은 도메인별로 달라질 수 있고 httpx.Client 는
+    생성 시점의 verify(SSLContext)를 나중에 못 바꾸므로, 일반 클라이언트와
+    legacy 클라이언트를 각각 하나씩만 지연 생성해 캐싱한다.
+    """
+
     def __init__(self, timeout: float = 15.0) -> None:
         self._timeout = timeout
+        self._client: httpx.Client | None = None
+        self._legacy_client: httpx.Client | None = None
+
+    def _get_client(self, allow_legacy_renegotiation: bool) -> httpx.Client:
+        if allow_legacy_renegotiation:
+            if self._legacy_client is None:
+                self._legacy_client = make_client(
+                    timeout=self._timeout, allow_legacy_renegotiation=True,
+                )
+            return self._legacy_client
+        if self._client is None:
+            self._client = make_client(timeout=self._timeout, allow_legacy_renegotiation=False)
+        return self._client
 
     def fetch(self, url: str, *, allow_legacy_renegotiation: bool = False) -> FetchResult:
         """
@@ -50,11 +74,8 @@ class HttpFetcher:
         - allow_legacy_renegotiation: 구형 TLS 재협상 서버(예: baotintuc.vn) 대응
         """
         start = time.monotonic()
-        with make_client(
-            timeout=self._timeout,
-            allow_legacy_renegotiation=allow_legacy_renegotiation,
-        ) as client:
-            resp = client.get(url)
+        client = self._get_client(allow_legacy_renegotiation)
+        resp = client.get(url)
 
         elapsed_ms = (time.monotonic() - start) * 1000
         html = "" if resp.status_code >= 400 else _decode_response(resp)
@@ -66,3 +87,17 @@ class HttpFetcher:
             render_mode=RenderMode.STATIC,
             elapsed_ms=elapsed_ms,
         )
+
+    def close(self) -> None:
+        if self._client is not None:
+            self._client.close()
+            self._client = None
+        if self._legacy_client is not None:
+            self._legacy_client.close()
+            self._legacy_client = None
+
+    def __enter__(self) -> "HttpFetcher":
+        return self
+
+    def __exit__(self, *_) -> None:
+        self.close()

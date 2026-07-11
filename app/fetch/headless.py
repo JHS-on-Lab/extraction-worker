@@ -19,6 +19,7 @@ render_mode 에 따라 동작이 다르다:
 
 from __future__ import annotations
 
+import logging
 import time
 from typing import TYPE_CHECKING
 
@@ -26,6 +27,8 @@ from app.types import FetchResult, RenderMode
 
 if TYPE_CHECKING:
     from app.fetch.http_client import HttpFetcher
+
+_log = logging.getLogger(__name__)
 
 
 class HeadlessFetcher:
@@ -37,11 +40,35 @@ class HeadlessFetcher:
         self._browser    = None
 
     def _ensure_browser(self) -> None:
-        if self._browser is not None:
+        # is_connected() 로 살아있는지 매번 확인한다 — 기존엔 self._browser is not None
+        # 만 보고 재사용해서, 브라우저 프로세스가 크래시(OOM 등)해도 죽은 참조를 계속
+        # 들고 있었다. 그 결과 이후 모든 headless 요청이 죽은 연결로 실패하고,
+        # 재시작 전까지 render_mode=headless(_iframe/_shadow) 인 모든 도메인이 계속
+        # 실패했다.
+        if self._browser is not None and self._browser.is_connected():
             return
+        if self._browser is not None:
+            _log.warning("headless 브라우저 연결이 끊김 — 재시작한다")
+        self._teardown()
+
         from playwright.sync_api import sync_playwright
         self._playwright = sync_playwright().start()
         self._browser = self._playwright.chromium.launch(headless=True)
+
+    def _teardown(self) -> None:
+        """죽었거나 재시작 전인 브라우저/playwright 참조를 정리한다."""
+        if self._browser is not None:
+            try:
+                self._browser.close()
+            except Exception:
+                pass
+            self._browser = None
+        if self._playwright is not None:
+            try:
+                self._playwright.stop()
+            except Exception:
+                pass
+            self._playwright = None
 
     def fetch(
         self,
@@ -92,12 +119,7 @@ class HeadlessFetcher:
         )
 
     def close(self) -> None:
-        if self._browser:
-            self._browser.close()
-            self._browser = None
-        if self._playwright:
-            self._playwright.stop()
-            self._playwright = None
+        self._teardown()
 
     def __enter__(self) -> "HeadlessFetcher":
         return self
