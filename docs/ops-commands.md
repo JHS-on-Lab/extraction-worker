@@ -39,12 +39,26 @@ APP_ENV=local python -m app --source NAVER_NEWS --worker-id local-extr
 ## 유틸리티 스크립트
 
 ```bash
-# 특정 URL HTML 직접 fetch 테스트
-python scripts/fetch_html.py https://example.com
+# 연결 상태 확인 (DB + Solr + t_crawl_runtime 전체)
+python scripts/healthcheck.py
+python scripts/healthcheck.py --db        # DB만
+python scripts/healthcheck.py --solr      # Solr만
+python scripts/healthcheck.py --runtime   # t_crawl_runtime 전체 목록
 
-# Solr sink 연결 테스트
+# 특정 URL HTML 직접 fetch 테스트 (iframe 내부까지 출력)
+python scripts/fetch_html.py --url "https://example.com"
+python scripts/fetch_html.py --url "https://example.com" --headless --save /tmp/out.html
+
+# 추출(Extraction) 단계 수동 실행
+python scripts/run_extraction.py --url "https://..." --dry-run   # 저장 없이 결과만
+python scripts/run_extraction.py --url "https://..." --source NAVER_STOCK --keyword 000660
+python scripts/run_extraction.py                                  # DB 에서 discovered URL 하나 꺼내 추출
+python scripts/run_extraction.py --source NAVER_NEWS              # 특정 소스만
+
+# domain 규칙 시드 (테이블 초기화 후 재시딩)
+python scripts/seed_domain_rules.py
+
+# Solr sink 연결 테스트 (더미 데이터 투입 후 인덱싱 확인)
 python scripts/test_solr_sink.py
-
-# 테이블 truncate (주의)
-python scripts/truncate_table.py t_crawl_url
+python scripts/test_solr_sink.py --rdb    # t_crawl_runtime 에서 설정 조회
 ```
