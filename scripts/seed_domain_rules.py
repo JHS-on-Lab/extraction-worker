@@ -526,8 +526,6 @@ _RULES: list[dict] = [
      "rules_enabled": False, "rules_json": None, "updated_by": "domain-analysis"},
     {"host": "www.gndomin.com",       "render_mode": "static", "crawl_delay_ms": 1500,
      "rules_enabled": False, "rules_json": None, "updated_by": "domain-analysis"},
-    {"host": "www.worktoday.co.kr",   "render_mode": "static", "crawl_delay_ms": 1500,
-     "rules_enabled": False, "rules_json": None, "updated_by": "domain-analysis"},
     {"host": "www.techholic.co.kr",   "render_mode": "static", "crawl_delay_ms": 1000,
      "rules_enabled": False, "rules_json": None, "updated_by": "domain-analysis"},
     {"host": "www.korea.kr",          "render_mode": "static", "crawl_delay_ms": 1000,
@@ -555,6 +553,29 @@ _RULES: list[dict] = [
     # HTTPS 서비스 자체 미제공, 전 IP 커넥션 타임아웃 확인). HTTP는 정상 응답.
     # force_http 로 fetch 직전에 스킴을 http 로 강제 다운그레이드.
     {"host": "www.celuvmedia.com",    "render_mode": "static", "crawl_delay_ms": 1000,
+     "rules_enabled": True, "updated_by": "domain-analysis",
+     "rules_json": {"force_http": True}},
+
+    # www.thekorea.kr: ConnectError [SSL: WRONG_VERSION_NUMBER] — 443 포트가 TLS가
+    # 아닌 응답을 보냄(HTTPS 서비스 자체가 구조적으로 깨짐). HTTP는 200 정상 응답 확인,
+    # trafilatura가 라이브러리 체인만으로 본문을 잘 잡아서 별도 CSS 규칙은 불필요.
+    {"host": "www.thekorea.kr",       "render_mode": "static", "crawl_delay_ms": 1000,
+     "rules_enabled": True, "updated_by": "domain-analysis",
+     "rules_json": {"force_http": True}},
+
+    # knpp.co.kr: ConnectError [SSL: CERTIFICATE_VERIFY_FAILED] self-signed certificate
+    # in certificate chain. HTTP는 200 정상 응답 확인(www.celuvmedia.com과 동일 패턴),
+    # trafilatura가 라이브러리 체인만으로 본문을 잘 잡아서 별도 CSS 규칙은 불필요.
+    {"host": "knpp.co.kr",            "render_mode": "static", "crawl_delay_ms": 1000,
+     "rules_enabled": True, "updated_by": "domain-analysis",
+     "rules_json": {"force_http": True}},
+
+    # www.worktoday.co.kr: ConnectError [SSL: CERTIFICATE_VERIFY_FAILED] Hostname
+    # mismatch — 인증서가 다른 도메인 것으로 확인(www.seouleconews.com과 동일 패턴).
+    # HTTP는 200 정상 응답, trafilatura가 라이브러리 체인만으로 본문을 잘 잡아서
+    # 별도 CSS 규칙은 불필요. (예전엔 "소량 실패" 버킷에 규칙 없이만 있었음 — 원인
+    # 확인해서 force_http로 승격.)
+    {"host": "www.worktoday.co.kr",   "render_mode": "static", "crawl_delay_ms": 1500,
      "rules_enabled": True, "updated_by": "domain-analysis",
      "rules_json": {"force_http": True}},
 
@@ -686,6 +707,20 @@ _RULES: list[dict] = [
          "published_at": {"xpath": "substring-after(normalize-space(//span[contains(@class,'ahi_date')]), '입력 ')",
                           "date_format": "%Y.%m.%d.%H:%M"},
          "min_body_len": 100,
+     }},
+
+    # pilot.wp.pl: "body_len=67 < 200" — TV 편성표 사이트라 라이브러리가 사이드바의
+    # 짧은 조각을 본문으로 잘못 잡음. 진짜 시놉시스 컨테이너(div.urzxqy-3, styled-
+    # components 해시 클래스라 리빌드 시 바뀔 수 있음 — 재발하면 재확인 필요)는
+    # film/serial 페이지 3건에서 500~2428자로 안정적으로 매칭 확인. h1은 프로그램명
+    # 뒤에 회차("Odc. 1")가 공백 없이 붙어 나오는데, 사이트 자체 마크업이 그렇게
+    # 돼 있는 것이라 규칙 문제는 아님.
+    {"host": "pilot.wp.pl", "render_mode": "static", "crawl_delay_ms": 1000,
+     "rules_enabled": True, "updated_by": "domain-analysis",
+     "rules_json": {
+         "title": {"css": "h1"},
+         "body":  {"css": "div.urzxqy-3"},
+         "min_body_len": 200,
      }},
 ]
 
