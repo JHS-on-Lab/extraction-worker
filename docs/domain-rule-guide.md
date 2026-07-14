@@ -179,6 +179,36 @@ SET cooldown_until = NULL, recent_fail_count = 0
 WHERE host = 'www.example.com';
 ```
 
+### SSL/TLS 접속 실패
+
+`ConnectError: [SSL: WRONG_VERSION_NUMBER]` / `CERTIFICATE_VERIFY_FAILED`(hostname
+mismatch, 자체서명, 만료) / `DH_KEY_TOO_SMALL` 등 — HTTPS 접속 자체가 서버 쪽에서
+구조적으로 깨진 경우가 많다. 규칙(CSS/XPath) 문제가 아니라 fetch 단계에서 이미
+실패하는 것이라, 먼저 HTTP(평문)로 같은 URL이 응답하는지 확인한다.
+
+```bash
+curl -sSI --max-time 8 "http://www.example.com/"
+```
+
+- **200 정상 응답 + 리다이렉트 없음** → `rules_json`에 `"force_http": true`만 추가하면
+  된다(별도 CSS 규칙 불필요 — fetch 직전 스킴만 http로 다운그레이드하고 이후는
+  평소처럼 library_chain/규칙 엔진이 처리). `www.celuvmedia.com`, `www.thekorea.kr`,
+  `knpp.co.kr`, `www.worktoday.co.kr`, `www.sisacast.kr`, `www.seouleconews.com`,
+  `www.financialreview.co.kr`, `autotimes.co.kr` 가 이 패턴.
+- **301/302로 다시 `https://`로 리다이렉트됨** → `force_http`가 무의미하다(리다이렉트
+  따라가면 결국 같은 SSL 에러로 돌아옴). `www.tjb.co.kr`(`DH_KEY_TOO_SMALL`)이 이
+  케이스 — OpenSSL 3.x가 약한 DH 파라미터를 거부하는 게 근본 원인인데, 이건
+  `legacy_renegotiation`과 별개로 SECLEVEL을 낮추는 새 SSL 컨텍스트가 필요해서
+  `app/fetch/_client.py`에 옵션을 추가하지 않는 한 규칙만으로는 해결 안 됨.
+- **구형 TLS 재협상을 요구하는 서버**(OpenSSL 3.x가 `UNSAFE_LEGACY_RENEGOTIATION_DISABLED`로
+  기본 거부) → `"legacy_renegotiation": true`. `baotintuc.vn` 참고.
+
+**혼동하지 말 것 — 봇 차단과의 구분**: `x-amzn-waf-action: challenge` 헤더나 Cloudflare
+"Just a moment..." 페이지, headless로 열어도 "JavaScript is disabled" 벽만 나오는
+경우는 SSL/TLS 문제가 아니라 WAF/봇 챌린지다. 이건 `force_http`는 물론 어떤
+`rules_json` 설정으로도 해결 안 된다 — HTML 자체가 안 오기 때문. (`www.imdb.com`,
+`kr.investing.com` 확인 사례.)
+
 ### SPA / JavaScript 렌더링 필요
 
 `fetch_html.py` 정적 모드에서 본문이 비어 있으면 headless가 필요하다.
@@ -226,6 +256,8 @@ python scripts/fix_domain_rule.py \
 | `amp_url` | AMP 페이지로 변환 후 추출 (SBS Biz 등 CSR 사이트) |
 | `next_data` | `<script id="__NEXT_DATA__">` 임베드 JSON 추출 (뉴스1 등 Next.js) |
 | `headless_wait_for` | headless 모드에서 특정 셀렉터 출현 대기 (JTBC 등) |
+| `force_http` | HTTPS가 구조적으로 깨진 도메인 → fetch 직전 http로 다운그레이드 ("SSL/TLS 접속 실패" 절 참고) |
+| `legacy_renegotiation` | 구형 TLS 재협상을 요구하는 서버 대응 (`baotintuc.vn` 등) |
 
 ---
 
