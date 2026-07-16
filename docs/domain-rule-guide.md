@@ -60,62 +60,55 @@ python scripts/fetch_html.py --url "https://www.example.com/article/123" --headl
 > - iframe 안에 본문이 있는가?
 > - 기사 본문 컨테이너의 class/id가 명확한가?
 
-### Step 2 — 현재 규칙 진단
+### Step 2 — 규칙 없이도 되는지 먼저 확인
 
 ```bash
-python scripts/fix_domain_rule.py --url "https://www.example.com/article/123"
+python scripts/run_extraction.py --url "https://www.example.com/article/123" --dry-run
 ```
 
-출력에서 두 가지를 확인한다.
+이 명령은 fetch 직전에 현재 `t_domain` 행의 규칙 상태도 같이 출력한다(`domain rule : 없음` /
+`있으나 rules_enabled=False` / 규칙 타입). 이미 규칙이 등록돼 있는데도 실패하고 있다면
+여기서 바로 드러난다.
 
-| 출력 | 의미 |
-|---|---|
-| `domain rule : (없음)` | 도메인 행 자체가 없음 → 라이브러리 체인만 시도 |
-| `rules_enabled=False` | 규칙이 등록됐지만 비활성 → 라이브러리 체인만 시도 |
-| `[CSS MISS]` | 셀렉터가 HTML에 없음 |
-| `[CSS OK] 총 29자` | 셀렉터는 맞지만 엉뚱한 노드를 잡음 |
-| `body_len=X < min_body_len` | 셀렉터는 맞지만 본문이 너무 짧음 |
+- 성공(`method: trafilatura` 또는 `readability`)이면 규칙 불필요. Step 3~4 건너뛰고 바로
+  Step 5(재투입)로.
+- `PARSE_ERROR`/`BODY_TOO_SHORT` 등 실패면 Step 3으로.
 
-> **도메인 규칙이 없는 경우** — `fix_domain_rule.py`는 CSS/XPath 규칙 진단만 하고 라이브러리 체인은 시도하지 않는다.
-> 규칙 없이 라이브러리(trafilatura → readability)가 본문을 잡을 수 있는지 먼저 확인한다.
->
-> ```bash
-> python scripts/run_extraction.py --url "https://www.example.com/article/123" --dry-run
-> ```
->
-> - 성공(`method: trafilatura` 또는 `readability`)이면 규칙 불필요. Step 3~4 건너뜀.
-> - 실패(`PARSE_ERROR`)면 Step 3으로 넘어가 규칙을 작성한다.
+### Step 3 — 후보 규칙을 DB에 저장하고 반복 검증
 
-### Step 3 — 새 규칙 작성 · 테스트
+`run_extraction.py`는 규칙 후보를 파일/인자로 넘기는 옵션이 없고 `t_domain.rules_json`을
+그대로 읽는다. 그래서 Step 1에서 찾은 셀렉터를 먼저 DB에 써넣고(`t_domain`은 sparse
+테이블이라 해당 host 행이 아직 없을 수 있음 — upsert), `--dry-run`으로 결과를 보는 식으로
+반복한다(파일 저장은 안 하니 실제 수집에는 영향 없음).
 
-Step 1에서 찾은 셀렉터로 규칙을 작성하고 테스트한다.
+```sql
+INSERT INTO t_domain (host, rules_json, rules_enabled, rules_version, updated_by)
+VALUES (
+    'www.example.com',
+    '{"title":{"css":"h1.article-title"},"body":{"css":"div.article-body"},"min_body_len":100}',
+    1, 1, 'manual-debug'
+)
+ON DUPLICATE KEY UPDATE
+    rules_json    = VALUES(rules_json),
+    rules_enabled = 1,
+    rules_version = rules_version + 1,
+    updated_by    = VALUES(updated_by);
+```
 
 ```bash
-python scripts/fix_domain_rule.py \
-  --url "https://www.example.com/article/123" \
-  --rule '{"title":{"css":"h1.article-title"},"body":{"css":"div.article-body"},"min_body_len":100}'
+python scripts/run_extraction.py --url "https://www.example.com/article/123" --dry-run
 ```
 
-출력이 `[성공]`이면 저장 프롬프트가 뜬다. `--save` 플래그로 프롬프트 없이 바로 저장한다.
+`method: rule:css` 또는 `rule:xpath`로 나오고 `body_len`이 충분하면 성공. 부족하면
+셀렉터를 고쳐 위 `UPDATE`를 다시 실행하고 재확인 — 이 사이클을 반복한다.
 
-```bash
-python scripts/fix_domain_rule.py \
-  --url "https://www.example.com/article/123" \
-  --rule '...' \
-  --save
-```
+> crawler-admin 이 떠 있다면 SQL 대신 `/domains` 화면의 "규칙 편집" 모달로 같은 작업을
+> UI에서 할 수 있다(저장 시 `rules_version` 자동 증가는 동일하게 적용됨).
 
-### Step 4 — 추출 재검증
+### Step 4 — seed_domain_rules.py 동기화
 
-규칙 저장 후 `run_extraction.py`로 실제 추출 결과를 확인한다.
-
-```bash
-python scripts/run_extraction.py \
-  --url "https://www.example.com/article/123" \
-  --dry-run
-```
-
-`method: rule:css` 또는 `rule:xpath`로 나오면 새 규칙이 적용된 것이다.
+검증이 끝난 규칙을 `seed_domain_rules.py`의 `_RULES` 리스트에도 반영해둔다(5절 참고) —
+그래야 테이블 재초기화 시 방금 검증한 규칙이 사라지지 않는다.
 
 ### Step 5 — 실패 URL 재투입
 
@@ -214,14 +207,26 @@ curl -sSI --max-time 8 "http://www.example.com/"
 `fetch_html.py` 정적 모드에서 본문이 비어 있으면 headless가 필요하다.
 
 ```bash
-python scripts/fix_domain_rule.py --host www.example.com
-# render_mode 확인
+# headless 로 렌더링된 HTML 확인 (본문 후보 요소가 이제 보이는지)
+python scripts/fetch_html.py --url "https://www.example.com/article/123" --headless
+```
 
-python scripts/fix_domain_rule.py \
-  --url "..." \
-  --rule '{"title":{"css":"..."},"body":{"css":"..."},"min_body_len":100}' \
-  --save
-# 규칙 저장 후 seed_domain_rules.py 의 render_mode 도 headless 로 업데이트
+`render_mode`는 `rules_json`과 별개의 `t_domain` 컬럼이라, Step 3의 `UPDATE`에 같이
+넣어야 한다:
+
+```sql
+INSERT INTO t_domain (host, render_mode, rules_json, rules_enabled, rules_version, updated_by)
+VALUES (
+    'www.example.com', 'headless',
+    '{"title":{"css":"..."},"body":{"css":"..."},"min_body_len":100}',
+    1, 1, 'manual-debug'
+)
+ON DUPLICATE KEY UPDATE
+    render_mode   = VALUES(render_mode),
+    rules_json    = VALUES(rules_json),
+    rules_enabled = 1,
+    rules_version = rules_version + 1,
+    updated_by    = VALUES(updated_by);
 ```
 
 `seed_domain_rules.py`의 해당 도메인 항목도 `"render_mode": "headless"`로 맞춰두면
@@ -263,12 +268,14 @@ python scripts/fix_domain_rule.py \
 
 ## 5. seed_domain_rules.py 동기화
 
-`fix_domain_rule.py --save`로 DB에 저장한 규칙은 `seed_domain_rules.py`에도 반영해두어야
+Step 3의 디버그용 `UPDATE`로 DB에 저장한 규칙은 `seed_domain_rules.py`에도 반영해두어야
 테이블 재초기화 시 사라지지 않는다.
 
-> **주의**: `fix_domain_rule.py --save` 는 `rules_json / rules_enabled / rules_version` 만 저장한다.
-> `render_mode` 와 `crawl_delay_ms` 는 저장하지 않으므로, headless 사이트나 딜레이가 필요한 사이트는
-> 반드시 `seed_domain_rules.py` 에도 해당 값을 추가해 `python scripts/seed_domain_rules.py` 로 적용해야 한다.
+> **주의**: Step 3의 SQL 예시는 기본적으로 `rules_json / rules_enabled / rules_version` 만
+> 다룬다. `render_mode` 와 `crawl_delay_ms` 는 별개 컬럼이라(SPA 케이스처럼 의도적으로
+> 같이 넣지 않는 한) 디버그 루프에 안 딸려온다 — headless 사이트나 딜레이가 필요한
+> 사이트는 반드시 `seed_domain_rules.py` 에도 해당 값을 추가해
+> `python scripts/seed_domain_rules.py` 로 적용해야 한다.
 
 ```python
 # seed_domain_rules.py 의 _RULES 리스트에 추가
