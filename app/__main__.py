@@ -17,7 +17,7 @@ import threading
 from app import logging_setup
 from app import config
 
-_SOURCES = ("NAVER_NEWS", "DAUM_NEWS", "GOOGLE_NEWS", "NAVER_STOCK", "DUCKDUCKGO_NEWS", "all")
+_SOURCES = ("NAVER_NEWS", "DAUM_NEWS", "GOOGLE_NEWS", "BAIDU_NEWS", "NAVER_STOCK", "DUCKDUCKGO_NEWS", "all")
 
 
 def _parse_args() -> argparse.Namespace:

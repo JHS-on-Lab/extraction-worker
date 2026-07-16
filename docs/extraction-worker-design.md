@@ -45,7 +45,9 @@
                     │              extraction-worker                │
                     │                                                │
 t_crawl_url ──────► │  CrawlUrlRepo.claim_next()                    │
- (MySQL)            │    낙관적 클레임 (status=extracting)            │
+ (MySQL)            │    낙관적 클레임 (status=extracting), t_domain  │
+                    │    조인 후 cooldown_until 미경과/excluded=1     │
+                    │    host는 후보에서 제외                          │
                     │          ↓                                    │
                     │  RateLimiter.wait(host)                       │
                     │          ↓                                    │
@@ -329,7 +331,9 @@ app/
     http_client.py                # HttpFetcher — client 재사용
     headless.py                   # HeadlessFetcher, fetch_by_render_mode()
     rate_limit.py                 # RateLimiter
-    proxy.py                      # 프록시 설정 (proxy_tier)
+    proxy.py                      # ProxyProvider Protocol + DirectProxy 스텁 — **미사용**:
+                                   # 현재 어떤 Fetcher도 이를 호출하지 않는다.
+                                   # t_domain.proxy_tier 값도 조회는 되지만 읽는 곳이 없다.
 
   extraction/
     extractor.py                  # DefaultExtractor — RuleEngine → LibraryChain
@@ -347,7 +351,12 @@ app/
   repository/
     db.py                         # SSH 터널(옵션) + SQLAlchemy 엔진 context manager
     crawl_url_repo.py             # claim_next / mark_stored / mark_failed / mark_dead / recover_timed_out
-    domain_repo.py                # t_domain 조회 + upsert_health + set_cooldown
+    domain_repo.py                # t_domain 조회 + upsert_health + set_cooldown (set_cooldown은
+                                   # 이 저장소 어디서도 호출되지 않는 미사용 메서드 — 크롤러
+                                   # 파이프라인 전체를 뒤져봐도 cooldown_until에 실제 값을
+                                   # 넣는 코드는 없다. crawler-admin은 이를 NULL로 "해제"만
+                                   # 한다. 즉 현재는 수동 SQL 외에는 쿨다운이 걸리는 경로가
+                                   # 없는, 절반만 구현된 기능이다)
     crawl_runtime_repo.py         # t_crawl_runtime 조회 (Solr 접속 정보)
     collection_log_repo.py        # 배치 통계 로그 적재
 
@@ -363,9 +372,11 @@ app/
 
 | 키 | 기본값 | 설명 |
 |---|---|---|
-| `RDS_HOST` / `RDS_PORT` / `RDS_USER` / `RDS_PASSWORD` / `RDS_DB` | (필수, 포트 3306) | MySQL 접속 정보 |
+| `RDS_HOST` / `RDS_USER` / `RDS_PASSWORD` / `RDS_DB` | (필수, `_REQUIRED_ALWAYS`) | MySQL 접속 정보 |
+| `RDS_PORT` | `3306` | MySQL 포트 — 기본값이 있어 미설정해도 기동 실패하지 않음 |
 | `TUNNEL_ENABLED` | `false` | SSH 터널 사용 여부 |
-| `TUNNEL_SSH_HOST` / `TUNNEL_SSH_PORT` / `TUNNEL_SSH_USER` / `TUNNEL_SSH_KEY_PATH` / `TUNNEL_LOCAL_PORT` | (터널 활성 시 필수) | SSH 터널 설정 |
+| `TUNNEL_SSH_HOST` / `TUNNEL_SSH_KEY_PATH` | (터널 활성 시 필수, `_REQUIRED_TUNNEL`) | SSH 터널 설정 |
+| `TUNNEL_SSH_PORT` / `TUNNEL_SSH_USER` / `TUNNEL_LOCAL_PORT` | `22` / `ubuntu` / `13306` | SSH 터널 설정 — 기본값이 있어 터널 활성 시에도 필수 아님 |
 | `WORKER_ID` | `worker-1` | 워커 식별자 (CLI `--worker-id` 로 override 가능) |
 | `DEFAULT_CRAWL_DELAY_MS` | `1000` | 도메인별 설정 없을 때 기본 크롤 딜레이 |
 | `HTTP_VERIFY_SSL` | `true` | SSL 검증 여부 (사내 자체서명 인증서 환경은 false) |
@@ -414,6 +425,10 @@ rescrape-dispatcher와 다름). `./deploy/build.sh` 로 빌드.
 ./deploy/run.sh extr-naver NAVER_NEWS
 ```
 
+`deploy/run.sh`는 동일 이름 컨테이너가 있으면 먼저 `docker rm -f`로 제거한 뒤,
+`--detach --name <worker_id> --user "$(id -u):$(id -g)" --restart unless-stopped`로
+컨테이너를 띄운다.
+
 Reaper 는 워커 프로세스 내부 daemon 스레드로 자동 기동되므로 별도 컨테이너/커맨드가
 필요 없다.
 
@@ -445,10 +460,15 @@ Reaper 는 워커 프로세스 내부 daemon 스레드로 자동 기동되므로
 | `reap` (reaper) | 타임아웃 회수 실행 |
 | `shutdown` | SIGTERM/SIGINT 수신 |
 
-### 16.3 Docker HEALTHCHECK
+### 16.3 헬스체크 파일 (Docker `HEALTHCHECK` 미연결)
 
-`/tmp/healthcheck` 파일의 mtime 이 `HEARTBEAT_INTERVAL_SECONDS` 의 2배(약 120초) 이내인지
-확인. heartbeat 주기마다 `_healthcheck.write()` 로 갱신.
+`app/worker/_healthcheck.py`가 heartbeat 주기마다 `/tmp/healthcheck` 파일의 mtime을
+갱신한다 — 파일 자체는 존재하며 갱신되고 있다. 다만 **현재 `Dockerfile`에는
+`HEALTHCHECK` 지시문이 없다**(`CMD`/`ENTRYPOINT`도 없음). 즉 "mtime이
+`HEARTBEAT_INTERVAL_SECONDS`의 2배(약 120초) 이내인지 확인"하는 로직은 컨테이너
+오케스트레이터(Docker/Compose/k8s)에 아직 연결돼 있지 않다 — 별도로
+`HEALTHCHECK CMD test $(...) -lt 120` 같은 지시문을 Dockerfile에 추가하거나
+외부 모니터링에서 이 파일을 직접 확인해야 실제 헬스체크로 동작한다.
 
 ---
 

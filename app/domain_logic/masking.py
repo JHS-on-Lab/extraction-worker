@@ -4,7 +4,8 @@
 두 가지 마스킹을 제공한다:
   1. mask_author()  — 저자명 글자 기반 마스킹 (첫글자·끝글자 보존)
   2. TextMasker     — 정규식 패턴 기반 텍스트 마스킹
-       - masking_list.json 에서 패턴 로드 (카드번호, 주민번호, 전화번호, 이메일)
+       - masking_list.json 에서 패턴 로드 (현재 활성 패턴: 전화번호, 이메일 —
+         카드번호/주민번호 패턴은 없음)
        - 기자명·특파원명은 callable 내장 패턴으로 처리 (2글자 이름 포함)
 """
 from __future__ import annotations
