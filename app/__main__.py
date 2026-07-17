@@ -3,7 +3,8 @@ extraction-worker 진입점.
 
 실행 예:
   python -m app
-  python -m app --source NAVER_NEWS   # 특정 소스만 처리
+  python -m app --source NAVER_NEWS              # 특정 소스만 처리
+  python -m app --source NAVER_NEWS,DAUM_NEWS    # 복수 소스만 처리
   python -m app --worker-id extr-1
 """
 
@@ -17,12 +18,29 @@ import threading
 from app import logging_setup
 from app import config
 
-_SOURCES = ("NAVER_NEWS", "DAUM_NEWS", "GOOGLE_NEWS", "BAIDU_NEWS", "NAVER_STOCK", "DUCKDUCKGO_NEWS", "all")
+_SOURCES = ("NAVER_NEWS", "DAUM_NEWS", "GOOGLE_NEWS", "BAIDU_NEWS", "NAVER_STOCK", "DUCKDUCKGO_NEWS")
+
+
+def _parse_source(value: str) -> str:
+    if value.upper() == "ALL":
+        return "all"
+    sources = [s.strip().upper() for s in value.split(",") if s.strip()]
+    if not sources:
+        raise argparse.ArgumentTypeError(
+            f"empty --source value (choices: {', '.join(_SOURCES)}, all)"
+        )
+    invalid = [s for s in sources if s not in _SOURCES]
+    if invalid:
+        raise argparse.ArgumentTypeError(
+            f"invalid source(s): {', '.join(invalid)} (choices: {', '.join(_SOURCES)}, all)"
+        )
+    return ",".join(sources)
 
 
 def _parse_args() -> argparse.Namespace:
     p = argparse.ArgumentParser(description="extraction-worker")
-    p.add_argument("--source",    default="all", choices=_SOURCES, help="처리할 소스 필터 (기본: all)")
+    p.add_argument("--source",    default="all", type=_parse_source,
+                    help="처리할 소스 필터, 콤마로 복수 지정 가능 (예: NAVER_NEWS,DAUM_NEWS) (기본: all)")
     p.add_argument("--worker-id", default=None,  help="워커 식별자 (기본: 환경변수 WORKER_ID)")
     return p.parse_args()
 

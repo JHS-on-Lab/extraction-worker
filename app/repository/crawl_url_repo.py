@@ -91,7 +91,7 @@ class CrawlUrlRepo:
     # 추출 단계
     # ------------------------------------------------------------------
 
-    def claim_next(self, worker_id: str, source: str | None = None) -> dict | None:
+    def claim_next(self, worker_id: str, source: str | list[str] | None = None) -> dict | None:
         """처리할 URL 하나를 원자적으로 점유한다.
 
         낙관적 클레임 패턴 (MariaDB 10.5 호환):
@@ -99,14 +99,20 @@ class CrawlUrlRepo:
           2. 각 후보에 대해 UPDATE WHERE status 조건으로 선점 시도
           3. rowcount=1 → 내가 가져간 것 / rowcount=0 → 다른 워커가 먼저 가져간 것 → 다음 후보 시도
 
-        source: 지정하면 해당 source_type 만 처리. None 이면 전체.
+        source: 지정하면 해당 source_type(들)만 처리 (문자열 또는 리스트). None 이면 전체.
 
         반환:
           - 처리할 URL 이 있으면 → dict (id, url, host, source_type, attempt_count, keyword)
           - 없으면 → None
         """
-        source_filter = "AND a.source_type = :source" if source else ""
-        params: dict = {"source": source} if source else {}
+        if not source:
+            source_filter = ""
+            params: dict = {}
+        else:
+            sources = [source] if isinstance(source, str) else list(source)
+            placeholders = ", ".join(f":source{i}" for i in range(len(sources)))
+            source_filter = f"AND a.source_type IN ({placeholders})"
+            params = {f"source{i}": s for i, s in enumerate(sources)}
 
         with self._engine.begin() as conn:
             rows = conn.execute(

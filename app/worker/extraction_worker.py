@@ -22,6 +22,7 @@ from __future__ import annotations
 import json
 import logging
 import time
+from collections import defaultdict
 from dataclasses import dataclass
 from datetime import datetime, timezone, timedelta
 
@@ -79,12 +80,14 @@ def run_extraction_loop(source: str, worker_id: str) -> None:
         extractor   = DefaultExtractor(domain_repo=domain_repo)  # domain_repo 주입 → 규칙 엔진 활성화
         sink        = make_sink(engine)  # SINK_TYPE 환경변수로 file / solr 선택
 
-        processed = urls_success = urls_failed = 0
+        stats               = _new_stats()  # source_type 별 processed/success/failed 집계
         heartbeat_interval  = config.HEARTBEAT_INTERVAL_SECONDS
         last_heartbeat      = time.monotonic()
         batch_start_dt      = datetime.now(KST)
         batch_start_mono    = time.monotonic()
-        source_filter       = None if source.upper() == "ALL" else source.upper()
+        source_filter       = None if source.upper() == "ALL" else [
+            s.strip().upper() for s in source.split(",") if s.strip()
+        ]
 
         # sink.write() 로 버퍼링만 되고 아직 flush() 로 확정 안 된 항목들.
         # sink.batch_size 개 쌓이면, 또는 idle/heartbeat/종료 시점에 flush 한다.
@@ -95,17 +98,16 @@ def run_extraction_loop(source: str, worker_id: str) -> None:
                 now = time.monotonic()
                 if now - last_heartbeat >= heartbeat_interval:
                     logger.info(
-                        f"heartbeat processed={processed} success={urls_success} failed={urls_failed}",
+                        f"heartbeat processed={_total(stats, 'processed')} "
+                        f"success={_total(stats, 'success')} failed={_total(stats, 'failed')}",
                         extra={"phase": "heartbeat", "worker_id": worker_id, "component": "extractor"},
                     )
                     last_heartbeat = now
                     _healthcheck.write()
                     # 안전망 — 배치가 안 찰 만큼 처리량이 적어도 heartbeat 주기마다는 flush 되게 한다.
                     _flush_pending(sink, url_repo, pending, worker_id)
-                    _flush_log(log_repo, source, worker_id,
-                               batch_start_dt, batch_start_mono,
-                               processed, urls_success, urls_failed)
-                    processed = urls_success = urls_failed = 0
+                    _flush_log(log_repo, stats, worker_id, batch_start_dt, batch_start_mono)
+                    stats            = _new_stats()
                     batch_start_dt   = datetime.now(KST)
                     batch_start_mono = time.monotonic()
 
@@ -122,10 +124,8 @@ def run_extraction_loop(source: str, worker_id: str) -> None:
                 if item is None:
                     # idle 상태에도 안 쌓인 채로 오래 방치되지 않게 flush.
                     _flush_pending(sink, url_repo, pending, worker_id)
-                    _flush_log(log_repo, source, worker_id,
-                               batch_start_dt, batch_start_mono,
-                               processed, urls_success, urls_failed)
-                    processed = urls_success = urls_failed = 0
+                    _flush_log(log_repo, stats, worker_id, batch_start_dt, batch_start_mono)
+                    stats            = _new_stats()
                     batch_start_dt   = datetime.now(KST)
                     batch_start_mono = time.monotonic()
                     logger.debug(
@@ -139,20 +139,24 @@ def run_extraction_loop(source: str, worker_id: str) -> None:
                     item, url_repo, domain_repo,
                     fetcher, headless_fetcher, limiter, extractor, sink, worker_id
                 )
-                processed += 1
+                item_stats = stats[item["source_type"]]
+                item_stats["processed"] += 1
                 if store_info is not None:
                     pending.append(store_info)
                     if len(pending) >= sink.batch_size:
                         _flush_pending(sink, url_repo, pending, worker_id)
                 if success:
-                    urls_success += 1
+                    item_stats["success"] += 1
                 else:
-                    urls_failed += 1
+                    item_stats["failed"] += 1
         finally:
             # 정상 종료·예외·SIGTERM(sys.exit) 어느 경로로 빠져나가든 버퍼에 남은
             # 항목을 반드시 flush 하거나(성공) failed_transient 로 되돌린다(실패) —
             # 그냥 두면 DB엔 아무 기록도 없이(여전히 extracting) 그 항목들이 유실된다.
             _flush_pending(sink, url_repo, pending, worker_id)
+            # 마지막 heartbeat 이후 쌓인 집계도 종료 시점에 흘려보낸다 —
+            # 안 하면 종료 직전 처리분의 t_collection_log 기록이 그냥 유실된다.
+            _flush_log(log_repo, stats, worker_id, batch_start_dt, batch_start_mono)
 
 
 def _flush_pending(
@@ -356,28 +360,42 @@ def _handle_failure(
                              next_retry_at=next_retry_at(attempt), worker_id=worker_id)
 
 
+def _new_stats() -> dict[str, dict[str, int]]:
+    """source_type 별 processed/success/failed 집계용 빈 컨테이너."""
+    return defaultdict(lambda: {"processed": 0, "success": 0, "failed": 0})
+
+
+def _total(stats: dict[str, dict[str, int]], key: str) -> int:
+    return sum(counts[key] for counts in stats.values())
+
+
 def _flush_log(
     log_repo: CollectionLogRepo,
-    source: str,
+    stats: dict[str, dict[str, int]],
     worker_id: str,
     started_at: datetime,
     started_mono: float,
-    attempted: int,
-    success: int,
-    failed: int,
 ) -> None:
-    if attempted == 0:
-        return
+    """source_type 별로 t_collection_log 에 한 행씩 기록한다.
+
+    --source 로 복수 소스를 함께 처리하는 경우에도, t_collection_log.source_type
+    은 VARCHAR(20) 단일 값 컬럼이라 소스별로 행을 나눠 써야 crawler-admin 의
+    source_type 단일 매치 필터/집계와 어긋나지 않는다.
+    """
     duration_ms = int((time.monotonic() - started_mono) * 1000)
-    try:
-        log_repo.insert_extraction(ExtractionLog(
-            source_type    = source,
-            worker_id      = worker_id,
-            started_at     = started_at,
-            duration_ms    = duration_ms,
-            urls_attempted = attempted,
-            urls_success   = success,
-            urls_failed    = failed,
-        ))
-    except Exception:
-        logger.exception("failed to write extraction log")
+    for src, counts in stats.items():
+        attempted = counts["processed"]
+        if attempted == 0:
+            continue
+        try:
+            log_repo.insert_extraction(ExtractionLog(
+                source_type    = src,
+                worker_id      = worker_id,
+                started_at     = started_at,
+                duration_ms    = duration_ms,
+                urls_attempted = attempted,
+                urls_success   = counts["success"],
+                urls_failed    = counts["failed"],
+            ))
+        except Exception:
+            logger.exception("failed to write extraction log", extra={"source_type": src})
