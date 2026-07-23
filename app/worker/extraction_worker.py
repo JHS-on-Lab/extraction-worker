@@ -27,6 +27,7 @@ from dataclasses import dataclass
 from datetime import datetime, timezone, timedelta
 
 from app import config
+from app.memlog import log_memory_usage
 from app.worker import _healthcheck
 from app.domain_logic.backoff import next_retry_at
 from app.domain_logic.failure_classifier import classify_http, classify_exception
@@ -104,6 +105,7 @@ def run_extraction_loop(source: str, worker_id: str) -> None:
                     )
                     last_heartbeat = now
                     _healthcheck.write()
+                    log_memory_usage(worker_id)
                     # 안전망 — 배치가 안 찰 만큼 처리량이 적어도 heartbeat 주기마다는 flush 되게 한다.
                     _flush_pending(sink, url_repo, pending, worker_id)
                     _flush_log(log_repo, stats, worker_id, batch_start_dt, batch_start_mono)

@@ -12,6 +12,7 @@ python-dotenv==1.1.0
 # HTTP / Headless
 httpx==0.28.1
 certifi==2026.06.17
+psutil>=5.9.0  # 메모리 사용량 로깅(self + Chromium 자식 프로세스 RSS)
 # 반드시 Dockerfile의 베이스 이미지 태그(mcr.microsoft.com/playwright/python:vX.Y.Z)와
 # 동일 버전으로 맞출 것. 어긋나면 pip 패키지와 이미지에 내장된 브라우저/드라이버 버전이
 # 안 맞아 headless fetch 가 전부 실패한다 (에러 메시지가 asyncio 관련으로 나와 헷갈리기 쉬움).

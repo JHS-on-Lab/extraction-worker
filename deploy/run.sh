@@ -45,6 +45,13 @@ fi
 
 mkdir -p "${LOG_DIR}" "${OUTPUT_DIR}"
 
+# render_mode(headless 여부)는 source_type 이 아니라 도메인별 설정(t_domain.rules_json)
+# 이라 --source 필터만으로 "이 컨테이너는 Chromium 안 씀"을 보장할 수 없다 — naver 도메인
+# 중에도 render_mode=headless 인 게 있을 수 있다. 그래서 discovery-worker 처럼 소스별
+# 티어를 나누지 않고 균일하게 잡는다. app/memlog.py 가 남기는 {log_name}-mem.log 실측치가
+# 쌓이면 MEM_LIMIT 환경변수로 이 기본값을 덮어쓴다.
+MEM_LIMIT="${MEM_LIMIT:-1.5g}"
+
 CONTAINER_NAME="${WORKER_ID}"
 IMAGE="extraction-worker:latest"
 
@@ -57,12 +64,15 @@ echo "▶ 컨테이너 시작: ${CONTAINER_NAME}"
 echo "  이미지   : ${IMAGE}"
 echo "  소스     : ${SOURCE}"
 echo "  환경설정 : ${ENV_FILE}"
+echo "  메모리   : ${MEM_LIMIT} (swap 비활성)"
 
 docker run \
     --detach \
     --name "${CONTAINER_NAME}" \
     --user "$(id -u):$(id -g)" \
     --restart unless-stopped \
+    --memory "${MEM_LIMIT}" \
+    --memory-swap "${MEM_LIMIT}" \
     --env-file "${ENV_FILE}" \
     -e APP_ENV="${APP_ENV}" \
     -e WORKER_ID="${WORKER_ID}" \

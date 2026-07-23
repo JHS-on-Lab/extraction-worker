@@ -4,6 +4,8 @@
 스트림 분리:
   {role}.log        — 정상 동작·진행·하트비트 (INFO 이상)
   {role}-error.log  — WARNING 이상만. "왜 멈췄나"를 한 곳에서 본다.
+  {role}-mem.log    — heartbeat 주기 메모리 스냅샷(app.memlog). 별도 로거("memlog")로
+                       propagate=False 이니 app.log/console 에는 섞이지 않는다.
 
 포맷:
   discovery  : {ts} {level} [component] worker phase keyword_id host msg
@@ -155,3 +157,10 @@ def _configure_root(log_dir: Path, log_name: str = "app") -> None:
     console.addFilter(ctx)
     console.setFormatter(logging.Formatter(app_fmt, datefmt=_DATE_FMT))
     root.addHandler(console)
+
+    mem_handler = _make_rotating_handler(log_dir / f"{log_name}-mem.log", logging.INFO)
+    mem_handler.setFormatter(logging.Formatter("%(asctime)s %(message)s", datefmt=_DATE_FMT))
+    mem_logger = logging.getLogger("memlog")
+    mem_logger.setLevel(logging.INFO)
+    mem_logger.addHandler(mem_handler)
+    mem_logger.propagate = False  # root(app.log/error.log/console)로 안 새게

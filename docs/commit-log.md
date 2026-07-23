@@ -12,6 +12,11 @@
 
 ---
 
+## 85737c9 — 2026-07-17
+docs: 커밋 로그 트래킹 파일 추가 (docs/commit-log.md)
+
+- docs/commit-log.md
+
 ## 8100cde — 2026-07-17
 feat: --source 콤마 구분 복수 소스 지정 지원
 
