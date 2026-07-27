@@ -51,7 +51,7 @@ def to_doc(content: CollectedContent, crawler_type: str, crawl_runtime_key: str)
 
     if config.MASKING_ENABLED:
         body   = _masker.mask(content.body or "", label="본문")
-        author = mask_author(content.author)
+        author = mask_author(content.author) if _masker.author_enabled else content.author
     else:
         body   = content.body
         author = content.author

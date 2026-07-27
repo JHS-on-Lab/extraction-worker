@@ -1,5 +1,9 @@
 {
-    "_comment": "JSON 패턴: 전화번호 → 이메일. 기자명·특파원명은 Python 내장 패턴으로 처리 (use_yn=N).",
+    "_comment": "JSON 패턴: 전화번호 → 이메일. 기자명·특파원명은 Python 내장 패턴으로 처리하되 이 파일의 use_yn 으로 활성화 여부를 제어한다.",
+    "author_masking": {
+        "use_yn": "N",
+        "_note": "저자명(작성자) 필드 마스킹 활성화 여부"
+    },
     "patterns": [
         {
             "label": "전화번호",

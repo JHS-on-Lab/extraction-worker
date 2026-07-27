@@ -3,10 +3,12 @@
 
 두 가지 마스킹을 제공한다:
   1. mask_author()  — 저자명 글자 기반 마스킹 (첫글자·끝글자 보존)
+                       author_masking.use_yn 으로 실제 적용 여부 제어 (호출부 책임)
   2. TextMasker     — 정규식 패턴 기반 텍스트 마스킹
        - masking_list.json 에서 패턴 로드 (현재 활성 패턴: 전화번호, 이메일 —
          카드번호/주민번호 패턴은 없음)
-       - 기자명·특파원명은 callable 내장 패턴으로 처리 (2글자 이름 포함)
+       - 기자명·특파원명은 callable 내장 패턴으로 처리 (2글자 이름 포함)하되
+         masking_list.json 의 동일 label use_yn 으로 활성화 여부 제어 (기본: 비활성)
 """
 from __future__ import annotations
 
@@ -118,8 +120,14 @@ class TextMasker:
 
     def __init__(self) -> None:
         self._patterns: list[_MaskPattern] = []
+        self._builtin_enabled: dict[str, bool] = {p.label: True for p in _BUILTIN}
+        self._author_enabled = True
         self._loaded  = False
         self._warned  = False
+
+    @property
+    def author_enabled(self) -> bool:
+        return self._author_enabled
 
     def load(self, path: str | Path) -> "TextMasker":
         """
@@ -128,6 +136,8 @@ class TextMasker:
         - 파일 없음: WARNING 후 내장 패턴만 사용
         - JSON 파싱 오류: ERROR 후 내장 패턴만 사용
         - 개별 패턴 오류: WARNING 후 해당 패턴 스킵, 나머지 계속 사용
+        - "기자명"/"특파원명" 항목은 정규식이 아닌 _BUILTIN callable 활성화 여부로만 사용됨
+        - "author_masking.use_yn" 으로 저자명(작성자) 마스킹 활성화 여부 제어
         """
         path = Path(path)
         if not path.exists():
@@ -141,11 +151,16 @@ class TextMasker:
             _log.error("masking_list.json 파싱 실패: %s — 내장 패턴만 사용", e)
             return self
 
+        self._author_enabled = data.get("author_masking", {}).get("use_yn") == "Y"
+
         loaded: list[_MaskPattern] = []
         for p in data.get("patterns", []):
+            label = p.get("label", "")
+            if label in self._builtin_enabled:
+                self._builtin_enabled[label] = p.get("use_yn") == "Y"
+                continue
             if p.get("use_yn") != "Y":
                 continue
-            label    = p.get("label", "")
             mask_str = p.get("mask_str", "")
             replace  = p.get("replace_str", "")
             if not mask_str:
@@ -163,8 +178,11 @@ class TextMasker:
         self._patterns = loaded
         self._loaded = True
         _log.info(
-            "마스킹 패턴 로드 완료: 정규식 %d개(카드/주민번호/전화/이메일 등) + 동적 %d개(기자명/특파원명)",
-            len(loaded), len(_BUILTIN),
+            "마스킹 패턴 로드 완료: 정규식 %d개 + 내장 %d개(활성: %s) | 저자명 마스킹: %s",
+            len(loaded),
+            len(_BUILTIN),
+            [l for l, on in self._builtin_enabled.items() if on],
+            self._author_enabled,
         )
         return self
 
@@ -173,7 +191,8 @@ class TextMasker:
         if not self._loaded and not self._warned:
             _log.warning("TextMasker.load() 미호출 — JSON 패턴 없이 내장 패턴만 적용됩니다")
             self._warned = True
-        for p in [*self._patterns, *_BUILTIN]:
+        active_builtin = [p for p in _BUILTIN if self._builtin_enabled.get(p.label, True)]
+        for p in [*self._patterns, *active_builtin]:
             new_text, count = p.pattern.subn(p.replace, text)
             if count > 0:
                 _log.debug("[마스킹] %s | %s | %d건", label, p.label, count)
