@@ -12,6 +12,13 @@
 
 ---
 
+## d3dd915 — 2026-07-27
+fix: 저자명 마스킹 해제, 기자명/특파원명 마스킹을 JSON use_yn 으로 실제 제어
+
+- app/domain_logic/masking.py
+- app/sink/serialize.py
+- masking_list.json
+
 ## 85737c9 — 2026-07-17
 docs: 커밋 로그 트래킹 파일 추가 (docs/commit-log.md)
 
