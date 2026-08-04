@@ -69,7 +69,7 @@ echo "  메모리   : ${MEM_LIMIT} (swap 비활성)"
 docker run \
     --detach \
     --name "${CONTAINER_NAME}" \
-    --user "$(id -u):$(id -g)" \
+    --user "1001:1001" \
     --restart unless-stopped \
     --memory "${MEM_LIMIT}" \
     --memory-swap "${MEM_LIMIT}" \

@@ -12,6 +12,14 @@
 
 ---
 
+## badf634 — 2026-08-03
+fix: --source 필터에 BAOMOI_NEWS 누락되어 있던 문제 수정
+
+- app/__main__.py
+- app/types.py
+- deploy/run.sh
+- docs/commit-log.md
+
 ## d3dd915 — 2026-07-27
 fix: 저자명 마스킹 해제, 기자명/특파원명 마스킹을 JSON use_yn 으로 실제 제어
 
