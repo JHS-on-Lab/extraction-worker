@@ -12,6 +12,15 @@
 
 ---
 
+## 7a760a0 — 2026-08-04
+feat: TINHTE_FORUM 소스 추가 반영
+
+- README.md
+- app/__main__.py
+- app/types.py
+- deploy/run.sh
+- docs/commit-log.md
+
 ## 6450237 — 2026-08-04
 chore: docker run --user 를 1001:1001 로 고정
 

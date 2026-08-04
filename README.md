@@ -54,10 +54,8 @@ APP_ENV=local python -m app --source NAVER_NEWS,DAUM_NEWS --worker-id local-extr
 
 | 인자 | 설명 | 값 범위 | 기본값 |
 |---|---|---|---|
-| `--source` | 처리할 소스 지정, 콤마로 복수 지정 가능 (예: `NAVER_NEWS,DAUM_NEWS`) | `NAVER_NEWS` \| `DAUM_NEWS` \| `GOOGLE_NEWS` \| `BAIDU_NEWS` \| `NAVER_STOCK` \| `DUCKDUCKGO_NEWS`(운영상 비활성) \| `BAOMOI_NEWS` \| `TINHTE_FORUM` \| `all` | `all` |
+| `--source` | 처리할 소스 지정, 콤마로 복수 지정 가능 (예: `NAVER_NEWS,DAUM_NEWS`) | `NAVER_NEWS` \| `DAUM_NEWS` \| `GOOGLE_NEWS` \| `BAIDU_NEWS` \| `NAVER_STOCK` \| `DUCKDUCKGO_NEWS` \| `BAOMOI_NEWS` \| `TINHTE_FORUM` \| `all` | `all` |
 | `--worker-id` | DB 클레임 소유권/로그 파일명에 쓰이는 워커 식별자 (인스턴스마다 고유해야 함) | 문자열 | env `WORKER_ID` (기본 `worker-1`) |
-
-> `DUCKDUCKGO_NEWS`는 어댑터/소스타입이 코드에 남아있지만 현재 실제 운영 대상 키워드는 없다(비활성). `BAIDU_NEWS`는 활성 대상이다.
 
 ### Docker
 

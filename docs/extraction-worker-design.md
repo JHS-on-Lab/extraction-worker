@@ -331,9 +331,6 @@ app/
     http_client.py                # HttpFetcher — client 재사용
     headless.py                   # HeadlessFetcher, fetch_by_render_mode()
     rate_limit.py                 # RateLimiter
-    proxy.py                      # ProxyProvider Protocol + DirectProxy 스텁 — **미사용**:
-                                   # 현재 어떤 Fetcher도 이를 호출하지 않는다.
-                                   # t_domain.proxy_tier 값도 조회는 되지만 읽는 곳이 없다.
 
   extraction/
     extractor.py                  # DefaultExtractor — RuleEngine → LibraryChain
@@ -343,7 +340,6 @@ app/
 
   sink/
     __init__.py                   # make_sink() 팩토리
-    base.py                       # Sink 재익스포트
     serialize.py                  # CollectedContent → dict (Solr 스키마 필드명)
     file_sink.py                  # FileSink (JSONL)
     solr_sink.py                  # SolrSink (버퍼링 + circuit breaker)
