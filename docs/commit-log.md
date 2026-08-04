@@ -12,6 +12,12 @@
 
 ---
 
+## 6450237 — 2026-08-04
+chore: docker run --user 를 1001:1001 로 고정
+
+- deploy/run.sh
+- docs/commit-log.md
+
 ## badf634 — 2026-08-03
 fix: --source 필터에 BAOMOI_NEWS 누락되어 있던 문제 수정
 

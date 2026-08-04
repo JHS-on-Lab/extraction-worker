@@ -18,7 +18,7 @@ import threading
 from app import logging_setup
 from app import config
 
-_SOURCES = ("NAVER_NEWS", "DAUM_NEWS", "GOOGLE_NEWS", "BAIDU_NEWS", "NAVER_STOCK", "DUCKDUCKGO_NEWS", "BAOMOI_NEWS")
+_SOURCES = ("NAVER_NEWS", "DAUM_NEWS", "GOOGLE_NEWS", "BAIDU_NEWS", "NAVER_STOCK", "DUCKDUCKGO_NEWS", "BAOMOI_NEWS", "TINHTE_FORUM")
 
 
 def _parse_source(value: str) -> str:

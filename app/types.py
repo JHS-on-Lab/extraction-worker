@@ -22,6 +22,7 @@ class SourceType(str, Enum):
     NAVER_STOCK     = "NAVER_STOCK"
     DUCKDUCKGO_NEWS = "DUCKDUCKGO_NEWS"
     BAOMOI_NEWS     = "BAOMOI_NEWS"
+    TINHTE_FORUM    = "TINHTE_FORUM"
 
 
 class CrawlUrlStatus(str, Enum):
