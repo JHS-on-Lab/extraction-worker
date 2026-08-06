@@ -72,10 +72,9 @@ echo "  이미지   : ${IMAGE}"
 echo "  소스     : ${SOURCE}"
 echo "  환경설정 : ${ENV_FILE}"
 
-# --user 를 명시하지 않는다 — 이미지가 build.sh 에서 빌드한 사람의 UID/GID로
-# appuser 를 만들고 USER appuser 로 고정돼 있어(Dockerfile 참고), 여기서 따로
-# 지정하지 않아도 그 계정을 그대로 상속해 실행된다. 빌드와 실행을 같은 계정
-# (배포 계정)으로 하면 마운트한 호스트 디렉터리 소유권과도 자동으로 맞는다.
+# --user 를 명시하지 않는다 — 이미지가 배포 계정 UID/GID(1001)로 appuser 를
+# 만들고 USER appuser 로 고정돼 있어(Dockerfile/build.sh 참고), 여기서 따로
+# 지정하지 않아도 그 계정을 그대로 상속해 실행된다.
 docker run \
     --detach \
     --name "${CONTAINER_NAME}" \
