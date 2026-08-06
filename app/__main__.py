@@ -18,22 +18,23 @@ import threading
 from app import logging_setup
 from app import config
 
-_SOURCES = ("NAVER_NEWS", "DAUM_NEWS", "GOOGLE_NEWS", "BAIDU_NEWS", "NAVER_STOCK", "DUCKDUCKGO_NEWS", "BAOMOI_NEWS", "TINHTE_FORUM")
-
 
 def _parse_source(value: str) -> str:
+    """--source 값을 정규화한다.
+
+    discovery-worker 의 어댑터(=source_type)는 이 저장소와 무관하게 계속 추가된다
+    (예: SOLR_RESCRAPE 는 rescrape-dispatcher 가 붙이는 source_type). 여기서 값
+    목록을 화이트리스트로 고정해두면 소스가 하나 늘 때마다 이 저장소도 따로
+    수정해야 하는 불필요한 결합이 생긴다 — 그래서 형식(공백/빈 값 여부)만 검사하고,
+    실제 값이 유효한 source_type 인지는 DB 조회(WHERE source_type IN (...))가
+    0건으로 자연히 걸러내도록 맡긴다. 오탈자를 실행 즉시 막고 싶다면
+    deploy/run.sh 의 형식 검증(정규식)을 통과시킨 뒤 실행해야 한다.
+    """
     if value.upper() == "ALL":
         return "all"
     sources = [s.strip().upper() for s in value.split(",") if s.strip()]
     if not sources:
-        raise argparse.ArgumentTypeError(
-            f"empty --source value (choices: {', '.join(_SOURCES)}, all)"
-        )
-    invalid = [s for s in sources if s not in _SOURCES]
-    if invalid:
-        raise argparse.ArgumentTypeError(
-            f"invalid source(s): {', '.join(invalid)} (choices: {', '.join(_SOURCES)}, all)"
-        )
+        raise argparse.ArgumentTypeError("empty --source value")
     return ",".join(sources)
 
 

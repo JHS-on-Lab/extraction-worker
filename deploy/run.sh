@@ -6,8 +6,10 @@
 #
 # 인자:
 #   worker_id  컨테이너 고유 식별자 (예: extr-1, extr-2)
-#   source     처리할 소스 필터 (기본: all)
-#              NAVER_NEWS | DAUM_NEWS | GOOGLE_NEWS | BAIDU_NEWS | NAVER_STOCK | DUCKDUCKGO_NEWS | BAOMOI_NEWS | TINHTE_FORUM | all
+#   source     처리할 소스 필터 (기본: all). t_crawl_url.source_type 값을 그대로
+#              콤마로 나열한다(예: NAVER_NEWS,DAUM_NEWS) — discovery-worker 어댑터가
+#              늘어도 이 스크립트/워커 코드를 고칠 필요 없이 그대로 쓸 수 있도록,
+#              여기서 정해진 목록으로 제한하지 않는다(형식만 검사).
 #
 # 예시:
 #   ./deploy/run.sh extr-1
@@ -40,6 +42,18 @@ if [[ -n "${3:-}" ]]; then
     echo ""
     echo "  해결: 띄어쓰기 없이 쓰거나(NAVER_NEWS,DAUM_NEWS), 따옴표로 통째로 묶으세요(\"NAVER_NEWS, DAUM_NEWS\")."
     exit 1
+fi
+
+# source_type 이 실제 DB에 존재하는 값인지는 여기서 알 수 없다(위 주석 참고 —
+# discovery-worker 쪽 소스 목록과 일부러 분리했다). 대신 형식만 검사해 명백한
+# 오타(빈 토큰, 허용 문자 밖의 값 등)만 여기서 걸러낸다 — 나머지는 쿼리 결과
+# 0건(계속 idle)으로 나타나므로, 그 전 단계에서 최소한의 방어선 역할만 한다.
+if [[ "${SOURCE}" != "all" && "${SOURCE}" != "ALL" ]]; then
+    if [[ ! "${SOURCE}" =~ ^[A-Za-z0-9_]+([[:space:]]*,[[:space:]]*[A-Za-z0-9_]+)*$ ]]; then
+        echo "오류: source 형식이 올바르지 않습니다: '${SOURCE}'"
+        echo "  영문/숫자/언더스코어만 사용하고, 콤마로 여러 개를 구분하세요 (예: NAVER_NEWS,DAUM_NEWS)."
+        exit 1
+    fi
 fi
 
 SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
