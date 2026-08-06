@@ -48,8 +48,9 @@ PROJECT_ROOT="$(cd "${SCRIPT_DIR}/.." && pwd)"
 APP_ENV="${APP_ENV:-dev}"
 ENV_FILE="${PROJECT_ROOT}/.env.${APP_ENV}"
 
-LOG_DIR="${HOME}/apps/data/extraction-worker/logs"
-OUTPUT_DIR="${HOME}/apps/data/extraction-worker/output"
+DATA_ROOT="/data001/crawler"
+LOG_DIR="${DATA_ROOT}/apps/data/extraction-worker/logs"
+OUTPUT_DIR="${DATA_ROOT}/apps/data/extraction-worker/output"
 
 if [[ ! -f "${ENV_FILE}" ]]; then
     echo "오류: 환경 설정 파일을 찾을 수 없습니다: ${ENV_FILE}"
