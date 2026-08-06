@@ -12,6 +12,13 @@
 
 ---
 
+## 508c109 — 2026-08-06
+fix: build.sh 의 APP_UID/APP_GID 를 1001로 고정 (run.sh --user 값과 통일)
+
+- Dockerfile
+- deploy/build.sh
+- docs/commit-log.md
+
 ## 035aee5 — 2026-08-06
 run.sh 데이터 경로를 HOME 대신 고정 경로(DATA_ROOT)로 변경
 

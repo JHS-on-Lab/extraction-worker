@@ -19,8 +19,12 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     && ln -snf /usr/share/zoneinfo/$TZ /etc/localtime && echo $TZ > /etc/timezone \
     && rm -rf /var/lib/apt/lists/*
 
-# 고정된 UID/GID(1001)를 쓰는 작업용 계정 생성 — 빌드한 사람과 무관하게 항상
-# 같은 값이어야 deploy/run.sh 의 --user 값과 어긋나지 않는다.
+# 이미지를 빌드하는 사람의 UID/GID로 작업용 계정을 만든다(build.sh가
+# --build-arg 로 전달). deploy/run.sh 는 --user 를 따로 지정하지 않고 이
+# 계정을 그대로 상속해 실행하므로, 빌드 시점과 실행 시점의 UID가 항상
+# 자동으로 일치한다 — 서버마다/프로젝트마다 실제 배포 계정 UID가 다를 수
+# 있어(예: 어떤 프로젝트는 1000, 어떤 프로젝트는 1001) 값을 하드코딩하면
+# 오히려 어긋난다.
 RUN groupadd --gid "${APP_GID}" appgroup \
     && useradd \
         --uid "${APP_UID}" \

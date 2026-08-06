@@ -423,8 +423,10 @@ rescrape-dispatcher와 다름). `./deploy/build.sh` 로 빌드.
 ```
 
 `deploy/run.sh`는 동일 이름 컨테이너가 있으면 먼저 `docker rm -f`로 제거한 뒤,
-`--detach --name <worker_id> --user "$(id -u):$(id -g)" --restart unless-stopped`로
-컨테이너를 띄운다.
+`--detach --name <worker_id> --restart unless-stopped`로 컨테이너를 띄운다.
+`--user`는 따로 지정하지 않는다 — 이미지가 `deploy/build.sh`에서 빌드한 사람의
+UID/GID로 만든 `appuser`를 `USER appuser`로 고정하고 있어(Dockerfile 참고),
+그 계정을 그대로 상속해 실행된다.
 
 Reaper 는 워커 프로세스 내부 daemon 스레드로 자동 기동되므로 별도 컨테이너/커맨드가
 필요 없다.
