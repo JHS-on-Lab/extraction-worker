@@ -19,7 +19,8 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     && ln -snf /usr/share/zoneinfo/$TZ /etc/localtime && echo $TZ > /etc/timezone \
     && rm -rf /var/lib/apt/lists/*
 
-# 호스트 계정과 동일한 UID/GID를 사용하는 작업용 계정 생성
+# 고정된 UID/GID(1001)를 쓰는 작업용 계정 생성 — 빌드한 사람과 무관하게 항상
+# 같은 값이어야 deploy/run.sh 의 --user 값과 어긋나지 않는다.
 RUN groupadd --gid "${APP_GID}" appgroup \
     && useradd \
         --uid "${APP_UID}" \

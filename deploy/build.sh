@@ -14,8 +14,11 @@ PROJECT_ROOT="$(cd "$(dirname "$0")/.." && pwd)"
 echo "▶ 빌드 시작: ${IMAGE_NAME}:${TAG}"
 echo "  프로젝트 루트: ${PROJECT_ROOT}"
 
+# APP_UID/APP_GID 는 run.sh 의 `docker run --user` 값(1001:1001)과 반드시
+# 같아야 한다 — 다르면 컨테이너가 appuser 소유가 아닌 UID로 실행돼 /app
+# 접근 권한 문제가 생긴다.
 docker build \
-    --build-arg APP_UID="$(id -u)" --build-arg APP_GID="$(id -g)" \
+    --build-arg APP_UID=1001 --build-arg APP_GID=1001 \
     -t "${IMAGE_NAME}:${TAG}" \
     "${PROJECT_ROOT}"
 

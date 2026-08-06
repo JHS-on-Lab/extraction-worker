@@ -12,6 +12,35 @@
 
 ---
 
+## 035aee5 — 2026-08-06
+run.sh 데이터 경로를 HOME 대신 고정 경로(DATA_ROOT)로 변경
+
+- deploy/run.sh
+
+## 99f4e10 — 2026-08-06
+run.sh에 source 인자 띄어쓰기 방어 로직 추가
+
+- deploy/run.sh
+
+## f1f3915 — 2026-08-06
+run.sh에서 컨테이너 메모리 제한 제거
+
+- deploy/run.sh
+
+## 0e12466 — 2026-08-06
+Docker 이미지 타임존을 서울(KST)로 설정하고 build-arg로 호스트 UID/GID 전달
+
+- Dockerfile
+- deploy/build.sh
+
+## b6b9056 — 2026-08-06
+fix: rule_engine amp_url/json_api 페치 실패 분류 및 스크립트 중복 정리
+
+- app/extraction/rule_engine.py
+- app/repository/crawl_url_repo.py
+- docs/commit-log.md
+- scripts/run_extraction.py
+
 ## 6b3748e — 2026-08-06
 docs: 주석/설계문서에서 날짜·이전 구현 비교 서술 제거
 
