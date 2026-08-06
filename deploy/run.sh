@@ -29,6 +29,19 @@ if [[ -z "${WORKER_ID}" ]]; then
     exit 1
 fi
 
+# source 를 콤마 뒤 띄어쓰기와 함께 따옴표 없이 넘기면(예: NAVER_NEWS, DAUM_NEWS)
+# 셸이 공백 기준으로 인자를 쪼개 $3 이후가 조용히 버려지고 --source 는 뒤에 콤마만
+# 남은 값으로 전달된다 — app/__main__.py._parse_source() 가 빈 토큰을 걸러내는
+# 탓에 에러 없이 소스 일부만 처리되는 채로 넘어간다. $3 이 존재하면 그 상황이므로
+# 여기서 바로 막는다.
+if [[ -n "${3:-}" ]]; then
+    echo "오류: source 인자에 띄어쓰기가 있으면 셸이 별도 인자로 쪼개 일부가 무시됩니다."
+    echo "  입력값: worker_id=${WORKER_ID} source=${SOURCE} (뒤에 더 있음: ${*:3})"
+    echo ""
+    echo "  해결: 띄어쓰기 없이 쓰거나(NAVER_NEWS,DAUM_NEWS), 따옴표로 통째로 묶으세요(\"NAVER_NEWS, DAUM_NEWS\")."
+    exit 1
+fi
+
 SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
 PROJECT_ROOT="$(cd "${SCRIPT_DIR}/.." && pwd)"
 
