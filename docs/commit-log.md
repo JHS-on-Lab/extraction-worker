@@ -12,6 +12,15 @@
 
 ---
 
+## e4d6f7c — 2026-08-04
+chore: 안 쓰는 sink/base.py, fetch/proxy.py 제거 + 문서 최신화
+
+- README.md
+- app/fetch/proxy.py
+- app/sink/base.py
+- docs/commit-log.md
+- docs/extraction-worker-design.md
+
 ## 7a760a0 — 2026-08-04
 feat: TINHTE_FORUM 소스 추가 반영
 

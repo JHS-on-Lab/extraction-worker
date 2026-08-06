@@ -40,9 +40,8 @@ def _decode_response(resp: httpx.Response) -> str:
 class HttpFetcher:
     """요청마다 httpx.Client 를 새로 만들지 않고 재사용한다.
 
-    이전엔 fetch() 호출마다 `with make_client(...) as client:` 로 매번 새
-    Client(+커넥션)를 만들고 버렸다 — 매 요청이 TCP+TLS 핸드셰이크를 새로
-    해야 해서 비효율적이었다(연결 재사용/커넥션 풀링 이점이 없었음).
+    요청마다 새 Client(+커넥션)를 만들면 매 요청이 TCP+TLS 핸드셰이크를 새로
+    해야 해서 비효율적이다(연결 재사용/커넥션 풀링 이점이 없어짐).
 
     allow_legacy_renegotiation 은 도메인별로 달라질 수 있고 httpx.Client 는
     생성 시점의 verify(SSLContext)를 나중에 못 바꾸므로, 일반 클라이언트와

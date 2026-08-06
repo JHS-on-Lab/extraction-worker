@@ -177,9 +177,9 @@ daemon 스레드(`daemon=True`)이므로 메인 스레드(추출 루프)가 종�
 
 ### 7.1 HttpFetcher — 커넥션 재사용
 
-`app/fetch/http_client.py`. 과거엔 `fetch()` 호출마다 `httpx.Client` 를 새로 만들고
-버렸다(TCP+TLS 핸드셰이크 매번 반복). 이제 `HttpFetcher` 인스턴스를 루프 밖에서 한 번만
-생성해 재사용하고, 내부적으로 일반 client 와 legacy TLS client(`allow_legacy_renegotiation`,
+`app/fetch/http_client.py`. `HttpFetcher` 인스턴스를 루프 밖에서 한 번만 생성해
+재사용한다 — 요청마다 `httpx.Client` 를 새로 만들면 TCP+TLS 핸드셰이크가 매번
+반복돼 비효율적이다. 내부적으로 일반 client 와 legacy TLS client(`allow_legacy_renegotiation`,
 구형 재협상 요구 서버 대응, 예: baotintuc.vn) 를 지연 생성해 각각 캐싱한다. `verify`
 (SSLContext) 는 client 생성 시점에 고정되므로 두 client 를 분리해야 한다.
 
@@ -229,8 +229,9 @@ daemon 스레드(`daemon=True`)이므로 메인 스레드(추출 루프)가 종�
 | rule_next_data | 100 | `__NEXT_DATA__` JSON 은 이미 구조화됨 |
 | rule_json_api | 5 | API 응답 필드가 명확한 대상(예: 짧은 종목토론 글) |
 
-값 자체를 통일하려던 리팩토링이 아니라, 왜 다른지 안 보이고 매직넘버로 흩어져 있던 걸
-명명 상수로 정리한 것이다. 각 규칙의 `rules_json.min_body_len` 으로 도메인별 override 가능.
+이 값들은 전략별 특성에 따라 의도적으로 다르며, 그 차이가 매직넘버로 코드 곳곳에
+흩어지지 않도록 명명 상수로 관리한다. 각 규칙의 `rules_json.min_body_len` 으로
+도메인별 override 가능.
 
 ---
 

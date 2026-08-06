@@ -269,10 +269,10 @@ _RULES: list[dict] = [
     },
 
     # ── 조선일보 (40건) ────────────────────────────────────────────────────────
-    # 2026-07 재확인: biz.chosun.com 과 동일하게 SSR→CSR 전환됨 — 정적 fetch 에서
-    # article-body 계열 클래스 전부 미노출(trafilatura/readability 도 PARSE_ERROR).
-    # headless 렌더링 후 실측 클래스로 교체. published_at: span.inputDate "입력 " 접두어
-    # 제거는 biz.chosun.com 룰과 동일 패턴.
+    # biz.chosun.com 과 동일하게 SSR→CSR 로 전환된 도메인 — 정적 fetch 로는
+    # article-body 계열 클래스가 전부 미노출된다(trafilatura/readability 도
+    # PARSE_ERROR). headless 렌더링으로 확인한 실제 클래스로 지정. published_at:
+    # span.inputDate "입력 " 접두어 제거는 biz.chosun.com 룰과 동일 패턴.
     {
         "host": "www.chosun.com",
         "render_mode": "headless",
@@ -358,7 +358,7 @@ _RULES: list[dict] = [
         "crawl_delay_ms": 1500,
         "rules_enabled": True,
         "updated_by": "domain-analysis",
-        # 초기 와일드카드 셀렉터가 오매칭 → og:title + div.gmv2c_con01 로 교체 (실측 기반)
+        # 와일드카드 셀렉터는 이 도메인에서 오매칭되므로 og:title + div.gmv2c_con01 로 좁혀서 지정
         "rules_json": {
             "title":        {"xpath": "//meta[@property='og:title']/@content"},
             "body":         {"css": "div.gmv2c_con01"},
