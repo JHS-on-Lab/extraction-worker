@@ -14,7 +14,10 @@ PROJECT_ROOT="$(cd "$(dirname "$0")/.." && pwd)"
 echo "▶ 빌드 시작: ${IMAGE_NAME}:${TAG}"
 echo "  프로젝트 루트: ${PROJECT_ROOT}"
 
-docker build -t "${IMAGE_NAME}:${TAG}" "${PROJECT_ROOT}"
+docker build \
+    --build-arg APP_UID="$(id -u)" --build-arg APP_GID="$(id -g)" \
+    -t "${IMAGE_NAME}:${TAG}" \
+    "${PROJECT_ROOT}"
 
 echo ""
 echo "✓ 빌드 완료: ${IMAGE_NAME}:${TAG}"
