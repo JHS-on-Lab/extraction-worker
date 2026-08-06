@@ -12,6 +12,14 @@
 
 ---
 
+## 6b3748e — 2026-08-06
+docs: 주석/설계문서에서 날짜·이전 구현 비교 서술 제거
+
+- app/fetch/http_client.py
+- docs/commit-log.md
+- docs/extraction-worker-design.md
+- scripts/seed_domain_rules.py
+
 ## e4d6f7c — 2026-08-04
 chore: 안 쓰는 sink/base.py, fetch/proxy.py 제거 + 문서 최신화
 

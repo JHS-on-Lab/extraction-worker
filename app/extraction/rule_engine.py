@@ -89,9 +89,11 @@ import time
 from datetime import datetime, timezone, timedelta
 from urllib.parse import urlparse, parse_qs
 
+import httpx
 from selectolax.parser import HTMLParser
 
 from app import config
+from app.domain_logic.failure_classifier import classify_exception, classify_http
 from app.extraction._common import build_content, check_body_length, check_title
 from app.types import CollectedContent, ErrorCode, ExtractionFailure
 
@@ -205,28 +207,11 @@ class RuleEngine:
         spec = rules["amp_url"]
         amp_url = url.replace(spec["pattern"], spec["replacement"])
 
-        try:
-            from app.fetch._client import make_client
-            with make_client() as client:
-                resp = client.get(amp_url)
-                if resp.status_code == 404:
-                    return ExtractionFailure(
-                        url=url,
-                        error_code=ErrorCode.FETCH_404,
-                        error_msg="amp_url: 404 not found",
-                        is_permanent=True,
-                    )
-                resp.raise_for_status()
-                amp_html = resp.text
-        except Exception as exc:
-            return ExtractionFailure(
-                url=url,
-                error_code=ErrorCode.FETCH_CONNECTION,
-                error_msg=f"amp_url fetch failed: {exc}",
-                is_permanent=False,
-            )
+        resp = _fetch_or_fail(amp_url, url, "amp_url")
+        if isinstance(resp, ExtractionFailure):
+            return resp
 
-        return self._extract_html(url, amp_html, rules, source_type, keyword, keyword_id)
+        return self._extract_html(url, resp.text, rules, source_type, keyword, keyword_id)
 
     def _extract_next_data(
         self,
@@ -327,24 +312,16 @@ class RuleEngine:
         api_url = spec["url_template"].replace(f"{{{param_name}}}", param_value)
 
         # JSON API 호출
+        resp = _fetch_or_fail(api_url, url, "json_api")
+        if isinstance(resp, ExtractionFailure):
+            return resp
         try:
-            from app.fetch._client import make_client
-            with make_client() as client:
-                resp = client.get(api_url)
-                if resp.status_code == 404:
-                    return ExtractionFailure(
-                        url=url,
-                        error_code=ErrorCode.FETCH_404,
-                        error_msg="json_api: 404 not found (삭제된 글)",
-                        is_permanent=True,
-                    )
-                resp.raise_for_status()
-                data = resp.json()
+            data = resp.json()
         except Exception as exc:
             return ExtractionFailure(
                 url=url,
-                error_code=ErrorCode.FETCH_CONNECTION,
-                error_msg=f"json_api fetch failed: {exc}",
+                error_code=ErrorCode.PARSE_ERROR,
+                error_msg=f"json_api: JSON parse failed: {exc}",
                 is_permanent=False,
             )
 
@@ -409,6 +386,36 @@ class RuleEngine:
 # ---------------------------------------------------------------------------
 # 내부 헬퍼
 # ---------------------------------------------------------------------------
+
+def _fetch_or_fail(fetch_url: str, original_url: str, context: str) -> httpx.Response | ExtractionFailure:
+    """amp_url/json_api 규칙이 공통으로 쓰는 정적 GET — 실패를 failure_classifier
+    로 분류해 ExtractionFailure 로 반환한다(HTTP 에러/네트워크 예외를 각각 자체
+    분류하면 app/worker/extraction_worker.py 의 판정 기준과 어긋날 위험이 있다).
+    ExtractionFailure.url 은 항상 원본 콘텐츠 URL(original_url)로 남긴다 — 실제
+    요청은 amp_url/api_url 같은 변환된 URL로 나갈 수 있어서다."""
+    try:
+        from app.fetch._client import make_client
+        with make_client() as client:
+            resp = client.get(fetch_url)
+    except Exception as exc:
+        error_code, is_permanent = classify_exception(exc)
+        return ExtractionFailure(
+            url=original_url,
+            error_code=error_code,
+            error_msg=f"{context} fetch failed: {exc}",
+            is_permanent=is_permanent,
+        )
+
+    if resp.status_code >= 400:
+        error_code, is_permanent = classify_http(resp.status_code)
+        return ExtractionFailure(
+            url=original_url,
+            error_code=error_code,
+            error_msg=f"{context}: HTTP {resp.status_code}",
+            is_permanent=is_permanent,
+        )
+    return resp
+
 
 def _apply_rule(html: str, rule: dict | None) -> str:
     """단일 필드 규칙을 HTML 에 적용해 텍스트를 반환한다. 실패 시 빈 문자열."""

@@ -158,29 +158,38 @@ class CrawlUrlRepo:
 
         return None
 
-    def mark_stored(self, item_id: int, extraction_method: str, worker_id: str) -> bool:
-        """추출 성공: status=stored, extraction_method 기록.
+    def _update_if_owned(self, item_id: int, worker_id: str, set_clause: str, params: dict) -> bool:
+        """mark_stored/mark_failed/mark_dead 가 공유하는 claim 소유권 체크.
 
         WHERE 절에 status='extracting' AND claimed_by=:worker_id 를 명시해, reaper가
         타임아웃으로 이미 회수(discovered로 되돌림)했거나 다른 워커가 다시 집어간
         행을 뒤늦게 덮어쓰지 않는다 — 없으면 느린 워커의 지연 완료가 이미 다른
-        워커가 처리 중이거나 완료한 결과를 조용히 덮어쓸 수 있다.
+        워커가 처리 중이거나 완료한 결과를 조용히 덮어쓸 수 있다. set_clause 는
+        호출부에서만 정의하는 고정 리터럴이어야 한다(외부 입력 금지 — f-string으로
+        SQL에 직접 꽂힌다).
         반환: 실제로 갱신됐으면 True, 소유권을 이미 잃었으면 False.
         """
         with self._engine.begin() as conn:
             result = conn.execute(
-                text("""
+                text(f"""
                     UPDATE t_crawl_url
-                    SET status = 'stored',
-                        extraction_method = :method,
+                    SET {set_clause},
                         claimed_at = NULL,
                         claimed_by = NULL,
                         updated_at = NOW()
                     WHERE id = :id AND status = 'extracting' AND claimed_by = :worker_id
                 """),
-                {"method": extraction_method, "id": item_id, "worker_id": worker_id},
+                {**params, "id": item_id, "worker_id": worker_id},
             )
         return result.rowcount > 0
+
+    def mark_stored(self, item_id: int, extraction_method: str, worker_id: str) -> bool:
+        """추출 성공: status=stored, extraction_method 기록."""
+        return self._update_if_owned(
+            item_id, worker_id,
+            "status = 'stored', extraction_method = :method",
+            {"method": extraction_method},
+        )
 
     def mark_failed(
         self,
@@ -195,57 +204,23 @@ class CrawlUrlRepo:
         추출 실패 처리.
         is_permanent=True  → failed_permanent (재시도 없음)
         is_permanent=False → failed_transient + next_retry_at 세팅
-
-        mark_stored 와 동일한 이유로 claim 소유권(status='extracting' AND
-        claimed_by=:worker_id)을 확인한다. 반환: 실제로 갱신됐으면 True.
         """
         status = "failed_permanent" if is_permanent else "failed_transient"
-        with self._engine.begin() as conn:
-            result = conn.execute(
-                text("""
-                    UPDATE t_crawl_url
-                    SET status          = :status,
-                        attempt_count   = attempt_count + 1,
-                        last_error_code = :code,
-                        last_error_msg  = :msg,
-                        next_retry_at   = :retry_at,
-                        claimed_at      = NULL,
-                        claimed_by      = NULL,
-                        updated_at      = NOW()
-                    WHERE id = :id AND status = 'extracting' AND claimed_by = :worker_id
-                """),
-                {
-                    "status":   status,
-                    "code":     error_code.value,
-                    "msg":      error_msg[:500],
-                    "retry_at": next_retry_at,
-                    "id":       item_id,
-                    "worker_id": worker_id,
-                },
-            )
-        return result.rowcount > 0
+        return self._update_if_owned(
+            item_id, worker_id,
+            "status = :status, attempt_count = attempt_count + 1, "
+            "last_error_code = :code, last_error_msg = :msg, next_retry_at = :retry_at",
+            {"status": status, "code": error_code.value, "msg": error_msg[:500], "retry_at": next_retry_at},
+        )
 
     def mark_dead(self, item_id: int, error_code: ErrorCode, error_msg: str, worker_id: str) -> bool:
-        """최대 시도 횟수 초과: status=dead.
-
-        mark_stored 와 동일한 이유로 claim 소유권을 확인한다. 반환: 실제로 갱신됐으면 True.
-        """
-        with self._engine.begin() as conn:
-            result = conn.execute(
-                text("""
-                    UPDATE t_crawl_url
-                    SET status          = 'dead',
-                        attempt_count   = attempt_count + 1,
-                        last_error_code = :code,
-                        last_error_msg  = :msg,
-                        claimed_at      = NULL,
-                        claimed_by      = NULL,
-                        updated_at      = NOW()
-                    WHERE id = :id AND status = 'extracting' AND claimed_by = :worker_id
-                """),
-                {"code": error_code.value, "msg": error_msg[:500], "id": item_id, "worker_id": worker_id},
-            )
-        return result.rowcount > 0
+        """최대 시도 횟수 초과: status=dead."""
+        return self._update_if_owned(
+            item_id, worker_id,
+            "status = 'dead', attempt_count = attempt_count + 1, "
+            "last_error_code = :code, last_error_msg = :msg",
+            {"code": error_code.value, "msg": error_msg[:500]},
+        )
 
     def recover_timed_out(self, timeout_seconds: int) -> int:
         """
