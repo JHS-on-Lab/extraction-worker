@@ -24,6 +24,10 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
 # 계정을 그대로 상속해 실행한다 — 배포 계정 하나로 build→run 을 항상
 # 순서대로 실행하는 운영 방식이라 빌드 시점과 실행 시점의 UID가 자동으로
 # 일치한다.
+
+# 기본 계정 pwuser의 uid,gid를 2001로 변경
+RUN groupmod -g 2001 pwuser && usermod -u 2001 -g 2001 pwuser
+
 RUN groupadd --gid "${APP_GID}" appgroup \
     && useradd \
         --uid "${APP_UID}" \
