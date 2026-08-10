@@ -1,6 +1,10 @@
 # Environment
 .env.*
 
+# deploy/ 하위 배포 설정 파일 (서버별 값 포함, 커밋 대상 아님)
+deploy/**/*.groovy
+deploy/**/*.env
+
 # Virtual environments
 .venv/
 venv/
