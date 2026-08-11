@@ -6,19 +6,42 @@
 #
 # 인자:
 #   worker_id  컨테이너 고유 식별자 (예: extr-1, extr-2)
-#   source     처리할 소스 필터 (기본: all). t_crawl_url.source_type 값을 그대로
-#              콤마로 나열한다(예: NAVER_NEWS,DAUM_NEWS) — discovery-worker 어댑터가
-#              늘어도 이 스크립트/워커 코드를 고칠 필요 없이 그대로 쓸 수 있도록,
-#              여기서 정해진 목록으로 제한하지 않는다(형식만 검사).
+#   source     처리할 소스 필터 (기본: all)
+#              NAVER_NEWS | DAUM_NEWS | GOOGLE_NEWS | NAVER_STOCK | DUCKDUCKGO_NEWS | all
 #
 # 예시:
 #   ./deploy/run.sh extr-1
 #   ./deploy/run.sh extr-naver NAVER_NEWS
 
+############################## 변수 설정 ################################
+
 set -e
+# deployment.env 로드
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+DEPLOY_ENV_FILE="${SCRIPT_DIR}/deployment.env"
+
+if [ -f "$DEPLOY_ENV_FILE" ]; then
+    echo "[INFO] $DEPLOY_ENV_FILE 파일을 로드합니다."
+    export $(grep -v '^#' "$DEPLOY_ENV_FILE" | xargs)
+else
+    echo "[ERROR] $DEPLOY_ENV_FILE 파일이 존재하지 않습니다!"
+    exit 1
+fi
 
 WORKER_ID="${1}"
 SOURCE="${2:-all}"
+ENV_FILE="${3:-env.dev}"
+IMAGE=$4
+APP_ENV="${APP_ENV:-dev}"
+CONTAINER_NAME="${WORKER_ID}"
+BASE_OUTPUT_DIR="/data001/crawler/apps/data/${CONTAINER_NAME}"
+LOG_DIR="${BASE_OUTPUT_DIR}/logs"
+OUTPUT_DIR="${BASE_OUTPUT_DIR}/output"
+
+###########################################################################
+
+
+############################## 실행 조건 확인 ##############################
 
 if [[ -z "${WORKER_ID}" ]]; then
     echo "오류: worker_id 가 필요합니다."
@@ -32,11 +55,10 @@ if [[ -z "${WORKER_ID}" ]]; then
 fi
 
 # source 를 콤마 뒤 띄어쓰기와 함께 따옴표 없이 넘기면(예: NAVER_NEWS, DAUM_NEWS)
-# 셸이 공백 기준으로 인자를 쪼개 $3 이후가 조용히 버려지고 --source 는 뒤에 콤마만
-# 남은 값으로 전달된다 — app/__main__.py._parse_source() 가 빈 토큰을 걸러내는
-# 탓에 에러 없이 소스 일부만 처리되는 채로 넘어간다. $3 이 존재하면 그 상황이므로
-# 여기서 바로 막는다.
-if [[ -n "${3:-}" ]]; then
+# 셸이 공백 기준으로 인자를 쪼개 source 일부가 뒤쪽 인자로 밀린다. 이 스크립트는
+# Jenkins 배포 시 env 파일과 이미지까지 총 4개 인자를 받으므로, 인자가 3개이거나
+# 5개 이상이면 잘못 분리된 source 로 간주해 여기서 바로 막는다.
+if (( $# == 3 || $# > 4 )); then
     echo "오류: source 인자에 띄어쓰기가 있으면 셸이 별도 인자로 쪼개 일부가 무시됩니다."
     echo "  입력값: worker_id=${WORKER_ID} source=${SOURCE} (뒤에 더 있음: ${*:3})"
     echo ""
@@ -56,25 +78,18 @@ if [[ "${SOURCE}" != "all" && "${SOURCE}" != "ALL" ]]; then
     fi
 fi
 
-SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
-PROJECT_ROOT="$(cd "${SCRIPT_DIR}/.." && pwd)"
-
-APP_ENV="${APP_ENV:-dev}"
-ENV_FILE="${PROJECT_ROOT}/.env.${APP_ENV}"
-
-DATA_ROOT="/data001/crawler"
-LOG_DIR="${DATA_ROOT}/apps/data/extraction-worker/logs"
-OUTPUT_DIR="${DATA_ROOT}/apps/data/extraction-worker/output"
 
 if [[ ! -f "${ENV_FILE}" ]]; then
     echo "오류: 환경 설정 파일을 찾을 수 없습니다: ${ENV_FILE}"
     exit 1
 fi
 
-mkdir -p "${LOG_DIR}" "${OUTPUT_DIR}"
+###########################################################################
 
-CONTAINER_NAME="${WORKER_ID}"
-IMAGE="extraction-worker:latest"
+
+############################## 배포 시작  ##################################
+
+mkdir -p "${LOG_DIR}" "${OUTPUT_DIR}"
 
 if docker ps -a --format '{{.Names}}' | grep -q "^${CONTAINER_NAME}$"; then
     echo "▶ 기존 컨테이너 제거: ${CONTAINER_NAME}"
@@ -86,13 +101,10 @@ echo "  이미지   : ${IMAGE}"
 echo "  소스     : ${SOURCE}"
 echo "  환경설정 : ${ENV_FILE}"
 
-# --user 를 명시하지 않는다 — 이미지가 build.sh 에서 빌드한 사람의 UID/GID로
-# appuser 를 만들고 USER appuser 로 고정돼 있어(Dockerfile 참고), 여기서
-# 따로 지정하지 않아도 그 계정을 그대로 상속해 실행된다. 배포 계정 하나로
-# build→run 을 항상 순서대로 실행하는 운영 방식이라 항상 일치한다.
 docker run \
     --detach \
     --name "${CONTAINER_NAME}" \
+    --user "$(id -u):$(id -g)" \
     --restart unless-stopped \
     --env-file "${ENV_FILE}" \
     -e APP_ENV="${APP_ENV}" \
@@ -108,3 +120,4 @@ echo "확인 명령어:"
 echo "  실시간 로그   → docker logs -f ${CONTAINER_NAME}"
 echo "  상태 확인     → docker ps | grep ${CONTAINER_NAME}"
 echo "  컨테이너 중지 → docker stop ${CONTAINER_NAME}"
+###########################################################################
